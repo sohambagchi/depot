@@ -1,6 +1,6 @@
 # depot sits behind buckwheat's HTTPS proxy and trusts only its X-Forwarded-For
 
-**Status:** accepted
+**Status:** accepted; apps' direct-address fallback superseded by [2026-11-25-0007-apps-reach-depot-over-https-only](2026-11-25-0007-apps-reach-depot-over-https-only.md)
 
 **Context:** depot is served at `https://depot.wheat.sohambagchi.com`: Caddy on buckwheat (100.77.198.14) ends TLS and forwards plain HTTP to malt at 100.97.41.27:8473. depot decides who may enroll and publish from the caller's address and `tailscale whois`, and through the proxy every connection comes from buckwheat, the user's own node. The name resolves to buckwheat's LAN address, so the proxy is reached from the home LAN.
 **Decision:**

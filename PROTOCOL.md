@@ -8,9 +8,14 @@ services can reuse it.
 All bodies are JSON (UTF-8) unless stated. depot serves plain HTTP on malt's tailnet address,
 reached two ways:
 
-- **Through the proxy.** `https://depot.wheat.sohambagchi.com` is a Caddy proxy on buckwheat,
-  reached from the home LAN. TLS ends at Caddy.
-- **Directly.** `http://100.97.41.27:8473` over the tailnet, which WireGuard encrypts.
+- **Through the proxy, which apps use.** `https://depot.wheat.sohambagchi.com` is a Caddy proxy
+  on buckwheat, and TLS ends there. The name resolves to buckwheat's LAN address,
+  192.168.0.69, which buckwheat also advertises as a Tailscale route. So a device with Tailscale
+  on reaches it over the tailnet, at home or away, and one on home Wi-Fi without Tailscale
+  reaches it over the LAN.
+- **Directly.** `http://100.97.41.27:8473` over the tailnet, which WireGuard encrypts. Used to
+  publish from malt, and by emulators on malt, which reach buckwheat over the LAN. See
+  [2026-11-25-0007-apps-reach-depot-over-https-only](../docs/adr/2026-11-25-0007-apps-reach-depot-over-https-only.md).
 
 When the caller is depot's trusted proxy, depot takes the caller's address from the last
 `X-Forwarded-For` entry (the one the proxy added); from anyone else, it ignores that header.
@@ -31,7 +36,8 @@ When the caller is depot's trusted proxy, depot takes the caller's address from 
 `POST /v1/enroll` `{"name": "Pixel 7a / app.blot", "key": "<base64 DER>"}` → `{"device": "d-…"}`
 
 - Accepted only from a tailnet address (100.64.0.0/10, fd7a:115c:a1e0::/48), otherwise **403**.
-  Through the proxy the caller is a LAN address, so a client enrolls at the direct address.
+  Through the proxy that means a device with Tailscale on; on home Wi-Fi without it, the
+  caller is a LAN address and gets **403**.
 - The server asks `tailscale whois` who the caller is. The login must be allowed (by default,
   the server's own login) and, if the server has a node list, the node must be on it,
   otherwise **403**. If whois can't be asked, **503**.

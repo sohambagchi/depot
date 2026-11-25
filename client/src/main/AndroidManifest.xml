@@ -10,10 +10,11 @@
     <!-- Keeps the periodic check scheduled across reboots (JobInfo.setPersisted). -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- Enrolling reaches depot directly at its tailnet address over plain HTTP (Tailscale
-         encrypts it); other requests go through the HTTPS proxy first. An app that sets its
-         own networkSecurityConfig must permit cleartext to that tailnet address there. -->
-    <application android:usesCleartextTraffic="true">
+    <!-- No plain HTTP, except to the hosts of any http:// URL in DEPOT_URLS (the direct
+         address, for emulators on malt) and to the hosts the app lists in
+         DEPOT_CLEARTEXT_HOSTS. build.gradle generates the config. An app with its own
+         networkSecurityConfig replaces it (tools:replace) and must permit those hosts itself. -->
+    <application android:networkSecurityConfig="@xml/depot_network_security">
 
         <!-- Schedules the update check when the app's process starts; the app needs no code. -->
         <provider

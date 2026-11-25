@@ -95,9 +95,12 @@ Apps that want an in-app control can use `com.sohambagchi.depot.Depot`:
   Both builds may use the same signing key. They install side by side, the download page lists
   debug builds in their own section, and downloads are named `<app>-v<version>.apk` and
   `<app>-v<version>.debug.apk`.
-- **Cleartext HTTP.** The library merges `android:usesCleartextTraffic="true"`, for the direct
-  tailnet address, which enrolling needs. Tailscale encrypts that path. An app with its own
-  `networkSecurityConfig` must permit cleartext to `100.97.41.27` there.
+- **No plain HTTP.** The library sets a generated `networkSecurityConfig` that refuses plain
+  HTTP, since depot is HTTPS only. An app that needs plain HTTP to its own hosts lists them in
+  `DEPOT_CLEARTEXT_HOSTS` (or `-Pdepot.cleartextHosts`), separated by commas or spaces, for
+  example from its flake's dev shell. An http:// URL in `DEPOT_URLS` permits its host too.
+  An app with its own `networkSecurityConfig` replaces the library's with
+  `tools:replace="android:networkSecurityConfig"` and must permit those hosts itself.
 - **Notifications.** The "update ready" notification needs `POST_NOTIFICATIONS` (Android 13+),
   which the app must request. Without it, only `Depot.pending` shows the update.
 - **Toolchains.** The client builds under AGP 8 (with the Kotlin plugin) and AGP 9 (built-in
@@ -106,10 +109,15 @@ Apps that want an in-app control can use `com.sohambagchi.depot.Depot`:
 
 **On the device:**
 
-- **First run.** On first start with Tailscale up, the app enrolls itself at the direct tailnet
-  address (a Keystore key, checked with `tailscale whois`).
-- **Checks.** After that it checks every 6 hours, and on start if more than an hour has passed.
-  Checks go through the HTTPS proxy first, then directly over the tailnet.
+- **First run.** On first start with Tailscale up, the app enrolls itself through the HTTPS name
+  (a Keystore key, checked with `tailscale whois`). With Tailscale on, the device reaches
+  buckwheat over the tailnet, so depot sees its tailnet address.
+- **Checks.** After that it checks every 6 hours, and on start if more than an hour has passed,
+  over Tailscale or home Wi-Fi.
+- **Emulators on malt.** malt reaches buckwheat over the LAN, so an emulator there can't enroll
+  through the name. Build its APK with
+  `DEPOT_URLS=https://depot.wheat.sohambagchi.com,http://100.97.41.27:8473`; the library then
+  permits plain HTTP to that address, and enrolling falls through to it.
 - **First tap.** The first tap on an update opens "Install unknown apps" for the app; allow it and
   tap again.
 - **No system dialog.** After that, the tap installs at once. The library holds
@@ -197,9 +205,11 @@ WantedBy=timers.target
 - **The proxy.** `https://depot.wheat.sohambagchi.com` is Caddy on buckwheat (100.77.198.14):
   TLS, DNS and certificates live there. It forwards plain HTTP to 100.97.41.27:8473.
   `--trust-proxy` makes depot read the client's address from its `X-Forwarded-For`.
-  The name resolves to buckwheat's LAN address, so it only works from the home LAN.
-- **Away from home.** Apps also have the direct tailnet address, and use it when the proxy
-  can't be reached.
+  The name resolves to buckwheat's LAN address, 192.168.0.69, which buckwheat advertises as a
+  Tailscale route (`192.168.0.69/32`). Devices with Tailscale on reach it over the tailnet, at
+  home or away. That route must stay advertised and approved, or enrolling stops working.
+- **No fallback.** Apps carry only the HTTPS name. If buckwheat is down, checks fail and are
+  retried later.
 - **State.** The state is in `~/.local/state/depot`:
   - `devices.json`: enrolled devices. Delete an entry to revoke it; that device enrolls again over
     Tailscale on its next check.
