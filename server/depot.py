@@ -374,18 +374,23 @@ class Depot:
                                                "Content-Disposition": f'attachment; filename="{filename}"'})
 
     async def catalog(self, request: web.Request) -> web.Response:
-        """Every app's latest release, for the download page."""
+        """Every app with its kept release and debug builds, newest first, for the download page.
+        An app is its release id and its debug id together (see `family`)."""
         if not on_local_network(self.client(request)):
             return error(403, "only from the home network or the tailnet")
-        apps = []
+        apps: dict[str, dict] = {}
         for idx_path in sorted((self.state / "apps").glob("*/index.json")):
             idx = json.loads(idx_path.read_text())
-            if idx["releases"]:
-                rel = max(idx["releases"], key=lambda r: r["code"])
-                apps.append(self.release_view(rel, idx["app"]) | {"label": rel.get("label") or idx["app"],
-                                                                  "build": idx.get("build") or "release"})
-        # Release builds first, then debug builds; each by name.
-        return web.json_response({"apps": sorted(apps, key=lambda a: (a["build"] != "release", a["label"].lower()))})
+            build = idx.get("build") or "release"
+            rels = sorted(idx["releases"], key=lambda r: r["code"], reverse=True)
+            entry = apps.setdefault(family(idx), {"app": family(idx), "release": [], "debug": []})
+            entry[build] = [self.release_view(r, idx["app"]) | {"build": build, "filename": apk_filename(idx, r)}
+                            for r in rels]
+        for entry in apps.values():
+            newest = (entry["release"] or entry["debug"] or [{}])[0]
+            entry["label"] = newest.get("label") or entry["app"]
+        listed = [a for a in apps.values() if a["release"] or a["debug"]]
+        return web.json_response({"apps": sorted(listed, key=lambda a: a["label"].lower())})
 
     async def publish(self, request: web.Request) -> web.Response:
         who = await self.tailnet_caller(request, check_node=False)

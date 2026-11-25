@@ -185,7 +185,8 @@ async def run(tmp: Path) -> None:
         assert s == 200 and b"<title>depot</title>" in page
         for fwd in (None, "192.168.0.50", "100.101.102.103"):
             s, cat = await get("/v1/catalog", fwd=fwd)
-            assert s == 200 and [(a["app"], a["code"], a["label"]) for a in cat["apps"]] == [("com.sohambagchi.test", 7, "Test App")], cat
+            shape = [(a["app"], a["label"], [r["code"] for r in a["release"]], a["debug"]) for a in cat["apps"]]
+            assert s == 200 and shape == [("com.sohambagchi.test", "Test App", [7, 5], [])], cat
         assert (await get("/v1/catalog", fwd="8.8.8.8"))[0] == 403
         s, body, headers = await get("/v1/apps/com.sohambagchi.test/7.apk", fwd="192.168.0.50", full=True)
         assert s == 200 and body == apk_bytes(b"7"), s
@@ -207,7 +208,11 @@ async def run(tmp: Path) -> None:
         s, _, headers = await get("/v1/apps/com.sohambagchi.test.debug/3.apk", fwd="192.168.0.50", full=True)
         assert headers["Content-Disposition"] == 'attachment; filename="test-v0.3.0.debug.apk"'
         s, cat = await get("/v1/catalog")
-        assert [(a["app"], a["build"]) for a in cat["apps"]] == [("com.sohambagchi.test", "release"), ("com.sohambagchi.test.debug", "debug")], cat
+        # One entry per app: the release id with its debug id's builds folded in.
+        (entry,) = cat["apps"]
+        assert entry["app"] == "com.sohambagchi.test" and [r["code"] for r in entry["release"]] == [7, 5], cat
+        assert [(r["code"], r["build"], r["filename"], r["url"]) for r in entry["debug"]] == [
+            (3, "debug", "test-v0.3.0.debug.apk", "/v1/apps/com.sohambagchi.test.debug/3.apk")], cat
         s, st = await get("/v1/status")
         assert st["apps"]["com.sohambagchi.test.debug"]["build"] == "debug" and st["apps"]["com.sohambagchi.test"]["build"] == "release"
         tailnet["yes"] = False

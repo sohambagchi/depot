@@ -100,11 +100,13 @@ in `latest`.
 
 ## Download page
 
-`GET /` is a static page that lists every app's latest release for a first install from a
-browser. It reads:
+`GET /` is a static page for a first install from a browser. It shows one card per app: the
+newest release, then dropdowns for the app's debug builds and its older versions. It reads:
 
-- **`GET /v1/catalog`** → `{"apps": [release + "label", …]}`. It answers callers on the home LAN
-  or the tailnet, and gives **403** to anything else.
+- **`GET /v1/catalog`** → `{"apps": [{"app", "label", "release": [...], "debug": [...]}, …]}`, sorted
+  by label. `app` is the release id. `release` and `debug` hold the builds kept under the
+  release id and the `.debug` id, newest first, each a release plus `build` and `filename`. It
+  answers callers on the home LAN or the tailnet, and gives **403** to anything else.
 - **`GET /v1/health`** → `{"service": "depot", "protocol": 1, …}`, with no auth.
 
 Anyone on the home Wi-Fi can list and download releases this way. Updates still go through

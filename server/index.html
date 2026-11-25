@@ -7,12 +7,12 @@
 <style>
   :root {
     --bg: #f6f6f4; --card: #ffffff; --ink: #1c1c1a; --muted: #6b6b66; --line: #e3e3de;
-    --accent: #2f5d50; --accent-ink: #ffffff;
+    --accent: #2f5d50; --accent-ink: #ffffff; --row: #f6f6f4;
     color-scheme: light dark;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #141413; --card: #1e1e1c; --ink: #ecece8; --muted: #9a9a94; --line: #2e2e2b;
-            --accent: #7fb8a6; --accent-ink: #10201b; }
+            --accent: #7fb8a6; --accent-ink: #10201b; --row: #252523; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink);
@@ -32,12 +32,19 @@
   .notes { font-size: 14px; margin-top: 6px; overflow-wrap: anywhere; }
   .hash { font: 11px/1.4 ui-monospace, monospace; color: var(--muted); margin-top: 8px;
           overflow-wrap: anywhere; }
-  .msg { color: var(--muted); padding: 16px 0; }
-  h2 { font-size: 15px; margin: 24px 0 4px; }
-  .sub { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
   .tag { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
          text-transform: uppercase; color: var(--muted); border: 1px solid var(--line);
          border-radius: 6px; padding: 1px 6px; margin-left: 6px; vertical-align: 2px; }
+  details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+  summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--muted);
+            list-style: none; display: flex; align-items: center; gap: 6px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "▸"; font-size: 12px; transition: transform 0.15s; }
+  details[open] summary::before { transform: rotate(90deg); }
+  .version { background: var(--row); border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
+  .version .meta { margin-top: 0; color: var(--ink); }
+  .version .get { padding: 6px 12px; font-size: 14px; border-radius: 8px; }
+  .msg { color: var(--muted); padding: 16px 0; }
   footer { color: var(--muted); font-size: 13px; margin-top: 24px; border-top: 1px solid var(--line);
            padding-top: 16px; }
   footer p { margin: 0 0 8px; }
@@ -50,6 +57,7 @@
   <div id="apps"><p class="msg">Loading…</p></div>
   <footer>
     <p>Android asks once to allow installs from your browser.</p>
+    <p>Debug builds are separate apps that install alongside the release ones.</p>
     <p>After installing, open the app once with Tailscale on. It enrolls then, and gets its
        updates from here afterwards.</p>
   </footer>
@@ -63,38 +71,58 @@
     return e;
   };
   const message = text => list.replaceChildren(el("p", "msg", text));
-  const mb = n => n < 1048576 ? Math.ceil(n / 1024) + " KB" : (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + " MB";
+  const size = n => n < 1048576 ? Math.ceil(n / 1024) + " KB" : (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + " MB";
   const day = ms => new Date(ms).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  const summaryOf = r => `${r.name || "build " + r.code} · ${size(r.size)} · ${day(r.published_at)}`;
+  const download = (r, cls) => {
+    const a = el("a", cls, "Download");
+    a.href = r.url;
+    a.setAttribute("download", r.filename);
+    return a;
+  };
+
+  // One build in a dropdown: version, size and date, its notes and hash, and a download.
+  const versionRow = r => {
+    const box = el("div", "version");
+    const row = el("div", "row");
+    const meta = el("div", "names");
+    meta.append(el("div", "meta", summaryOf(r)));
+    row.append(meta, download(r, "get"));
+    box.append(row);
+    if (r.notes) box.append(el("div", "notes", r.notes));
+    box.append(el("div", "hash", "sha256 " + r.sha256));
+    return box;
+  };
+  const dropdown = (title, builds) => {
+    const d = el("details");
+    d.append(el("summary", null, `${title} (${builds.length})`), ...builds.map(versionRow));
+    return d;
+  };
+
+  // One card per app: its newest release up top, then its debug builds and its older releases.
+  // An app with only debug builds shows its newest debug build up top instead.
+  const card = a => {
+    const debugOnly = !a.release.length;
+    const main = debugOnly ? a.debug[0] : a.release[0];
+    const box = el("div", "app");
+    const row = el("div", "row");
+    const names = el("div", "names");
+    const label = el("div", "label", a.label);
+    if (debugOnly) label.append(el("span", "tag", "debug"));
+    names.append(label, el("div", "id", a.app));
+    row.append(names, download(main, "get"));
+    box.append(row, el("div", "meta", summaryOf(main)));
+    if (main.notes) box.append(el("div", "notes", main.notes));
+    box.append(el("div", "hash", "sha256 " + main.sha256));
+    if (!debugOnly && a.debug.length) box.append(dropdown("Debug builds", a.debug));
+    const older = (debugOnly ? a.debug : a.release).slice(1);
+    if (older.length) box.append(dropdown("Older versions", older));
+    return box;
+  };
 
   fetch("/v1/catalog")
     .then(r => r.ok ? r.json() : r.json().then(b => Promise.reject(new Error(b.error || r.status))))
-    .then(({ apps }) => {
-      if (!apps.length) return message("Nothing published yet.");
-      const card = a => {
-        const card = el("div", "app");
-        const row = el("div", "row");
-        const names = el("div", "names");
-        const label = el("div", "label", a.label);
-        if (a.build === "debug") label.append(el("span", "tag", "debug"));
-        names.append(label, el("div", "id", a.app));
-        const get = el("a", "get", "Download");
-        get.href = a.url;
-        get.setAttribute("download", "");
-        row.append(names, get);
-        card.append(row, el("div", "meta", `${a.name || "build " + a.code} · ${mb(a.size)} · ${day(a.published_at)}`));
-        if (a.notes) card.append(el("div", "notes", a.notes));
-        card.append(el("div", "hash", "sha256 " + a.sha256));
-        return card;
-      };
-      const release = apps.filter(a => a.build !== "debug"), debug = apps.filter(a => a.build === "debug");
-      const parts = release.map(card);
-      if (debug.length) {
-        parts.push(el("h2", null, "Debug builds"),
-                   el("p", "sub", "Separate apps that install alongside the release ones."),
-                   ...debug.map(card));
-      }
-      list.replaceChildren(...parts);
-    })
+    .then(({ apps }) => apps.length ? list.replaceChildren(...apps.map(card)) : message("Nothing published yet."))
     .catch(e => message("Can't list apps: " + e.message));
 </script>
 </body>
