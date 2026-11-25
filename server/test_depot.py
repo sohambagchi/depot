@@ -76,10 +76,12 @@ async def run(tmp: Path) -> None:
                 body = json.loads(body) if r.content_type == "application/json" else body
                 return (r.status, body, r.headers) if full else (r.status, body)
 
-        async def publish(code, signer=SIGNER, data=None, app="app.test"):
+        async def publish(code, signer=SIGNER, data=None, app="app.test", build="release"):
             form = aiohttp.FormData()
-            form.add_field("meta", json.dumps({"app": app, "code": code, "name": f"0.{code}.0", "label": "Test App",
-                                               "signer": signer, "notes": "n"}), content_type="application/json")
+            meta = {"app": app, "code": code, "name": f"0.{code}.0", "label": "Test App", "signer": signer, "notes": "n"}
+            if build:
+                meta["build"] = build
+            form.add_field("meta", json.dumps(meta), content_type="application/json")
             form.add_field("apk", data or apk_bytes(str(code).encode()), filename="a.apk")
             return await post("/v1/publish", data=form)
 
@@ -190,6 +192,20 @@ async def run(tmp: Path) -> None:
         assert headers["Content-Disposition"] == 'attachment; filename="app.test-0.7.0.apk"'
         assert (await get("/v1/apps/app.test/7.apk", fwd="8.8.8.8"))[0] == 401
         assert (await get("/v1/apps/app.test/latest", fwd="192.168.0.50"))[0] == 401
+
+        # Debug and release builds: each application id takes one build type.
+        tailnet["yes"] = True
+        assert (await publish(8, build=None))[0] == 400
+        s, body = await publish(8, build="debug")
+        assert s == 409 and "applicationIdSuffix" in body["error"], body
+        s, rel = await publish(3, app="app.test.debug", build="debug")
+        assert s == 200 and rel["build"] == "debug", rel
+        assert (await publish(4, app="app.test.debug"))[0] == 409  # a release build under the debug id
+        s, cat = await get("/v1/catalog")
+        assert [(a["app"], a["build"]) for a in cat["apps"]] == [("app.test", "release"), ("app.test.debug", "debug")], cat
+        s, st = await get("/v1/status")
+        assert st["apps"]["app.test.debug"]["build"] == "debug" and st["apps"]["app.test"]["build"] == "release"
+        tailnet["yes"] = False
 
         # Revoking the device kills its token.
         tailnet["yes"] = True

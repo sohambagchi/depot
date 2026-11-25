@@ -42,6 +42,7 @@ TAILNET = (ipaddress.ip_network("100.64.0.0/10"), ipaddress.ip_network("fd7a:115
 APP_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 PAGE = Path(__file__).with_name("index.html")  # the download page
+BUILDS = ("debug", "release")
 # A systemd service's PATH may not hold the system profile, where NixOS puts the tailscale CLI.
 TAILSCALE = os.environ.get("DEPOT_TAILSCALE") or shutil.which("tailscale") or "/run/current-system/sw/bin/tailscale"
 
@@ -354,8 +355,10 @@ class Depot:
             idx = json.loads(idx_path.read_text())
             if idx["releases"]:
                 rel = max(idx["releases"], key=lambda r: r["code"])
-                apps.append(self.release_view(rel, idx["app"]) | {"label": rel.get("label") or idx["app"]})
-        return web.json_response({"apps": sorted(apps, key=lambda a: a["label"].lower())})
+                apps.append(self.release_view(rel, idx["app"]) | {"label": rel.get("label") or idx["app"],
+                                                                  "build": idx.get("build") or "release"})
+        # Release builds first, then debug builds; each by name.
+        return web.json_response({"apps": sorted(apps, key=lambda a: (a["build"] != "release", a["label"].lower()))})
 
     async def publish(self, request: web.Request) -> web.Response:
         who = await self.tailnet_caller(request, check_node=False)
@@ -374,6 +377,9 @@ class Depot:
             app, code, name = meta["app"], int(meta["code"]), str(meta.get("name") or "")
             signer, notes = str(meta["signer"]).lower(), str(meta.get("notes") or "")[:2000]
             label = str(meta.get("label") or "")[:64]
+            build = meta.get("build")
+            if build not in BUILDS:
+                raise ValueError("build must be \"debug\" or \"release\" (is emu-publish up to date?)")
             if not APP_ID.match(app):
                 raise ValueError(f"bad app id {app!r}")
             if code <= 0 or not HEX64.match(signer):
@@ -384,13 +390,17 @@ class Depot:
             return error(400, f"bad publish: {e}")
         async with self.lock:
             with state_lock(self.state):  # held for milliseconds, as a prune is
-                idx = self.index(app) or {"app": app, "signer": signer, "releases": []}
+                idx = self.index(app) or {"app": app, "signer": signer, "build": build, "releases": []}
                 if signer != idx["signer"]:
                     return error(409, f"{app} is pinned to signer {idx['signer']}; this APK is signed by {signer}")
+                # An application id carries one build type, so a device never swaps one for the other.
+                if build != idx.setdefault("build", build):
+                    return error(409, f"{app} takes {idx['build']} builds and this is a {build} build; give "
+                                      f"debug builds their own application id (applicationIdSuffix = \".debug\")")
                 top = max((r["code"] for r in idx["releases"]), default=0)
                 if code <= top:
                     return error(409, f"version code {code} is not greater than the published {top}")
-                rel = {"code": code, "name": name, "label": label, "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+                rel = {"code": code, "name": name, "label": label, "build": build, "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
                        "signer": signer, "notes": notes, "published_at": now_ms(),
                        "published_by": f"{who['login']} on {who['node']}"}
                 write_atomic(self.app_dir(app) / f"{code}.apk", data)
@@ -407,7 +417,8 @@ class Depot:
         for d in sorted((self.state / "apps").glob("*/index.json")):
             idx = json.loads(d.read_text())
             rels = sorted(idx["releases"], key=lambda r: r["code"])
-            apps[idx["app"]] = {"signer": idx["signer"], "latest": rels[-1] if rels else None, "releases": len(rels)}
+            apps[idx["app"]] = {"signer": idx["signer"], "build": idx.get("build"),
+                                "latest": rels[-1] if rels else None, "releases": len(rels)}
         devices = [{k: d.get(k) for k in ("name", "node", "enrolled_at", "last_seen")} | {"id": i}
                    for i, d in self.devices().items()]
         return web.json_response({"apps": apps, "devices": devices, "listen": self.hosts})

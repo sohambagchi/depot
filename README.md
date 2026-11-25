@@ -76,8 +76,19 @@ Apps that want an in-app control can use `com.sohambagchi.depot.Depot`:
 - **Signing key.** Every build must be signed with the same key, kept outside the repo; for
   example `~/.android/<app>.jks`, as airlock-mobile does. The first published release pins its
   signer on the server.
-- **Builds.** Debug and release builds both work, as long as the signer and version convention
-  are the same.
+- **Debug and release builds.** Each application id on depot takes one build type, pinned by its
+  first publish. To publish both, give debug builds their own id and label, as Blot does:
+
+  ```kotlin
+  buildTypes {
+      debug {
+          applicationIdSuffix = ".debug"
+          manifestPlaceholders["appLabel"] = "<App> debug"  // with android:label="${appLabel}"
+      }
+  }
+  ```
+
+  Both may use the same signing key. The download page lists debug builds in their own section.
 - **Cleartext HTTP.** The library merges `android:usesCleartextTraffic="true"`, for the direct
   tailnet address, which enrolling needs. Tailscale encrypts that path. An app with its own
   `networkSecurityConfig` must permit cleartext to `100.97.41.27` there.
@@ -115,17 +126,19 @@ installed from the tap with no dialog.
 ## Publishing
 
 ```sh
-gradle assembleDebug     # from a clean, committed tree
-emu-publish app/build/outputs/apk/debug/app-debug.apk [--notes TEXT]
+gradle assembleRelease assembleDebug     # from a clean, committed tree
+emu-publish app/build/outputs/apk/release/app-release.apk [--notes TEXT]
+emu-publish app/build/outputs/apk/debug/app-debug.apk
 ```
 
-- **What it sends.** It reads the application id, version code and name with `aapt2`, and the
-  signer with `apksigner`. The notes default to the last commit subject.
+- **What it sends.** It reads the application id, version code, name, label and build type with
+  `aapt2` (debug if the APK is debuggable), and the signer with `apksigner`. The notes default to
+  the last commit subject.
 - **Dirty trees.** It refuses a dirty tree (`--allow-dirty` overrides this), and warns when the
   version code isn't the commit count.
 - **Where.** It posts to `DEPOT_PUBLISH_URL`, the direct tailnet address; through the proxy, the
   publisher would look like a LAN client. depot answers 409 to a version code
-  that isn't new, or to a different signer.
+  that isn't new, a different signer, or a different build type.
 
 ## Server (malt)
 

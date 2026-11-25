@@ -81,12 +81,15 @@ never reaches the install prompt.
 ## Publishing
 
 `POST /v1/publish` as `multipart/form-data` with two parts: `meta` (JSON:
-`app`, `code`, `name`, `signer`, `notes`) and `apk` (the file). It answers with the release, as
+`app`, `code`, `name`, `label`, `build`, `signer`, `notes`) and `apk` (the file). `build` is
+`"debug"` or `"release"`, and is required. It answers with the release, as
 in `latest`.
 
 - Accepted only from a tailnet address whose whois login is allowed. There is no device key.
-- **409** if `code` is not greater than the latest published code, or if `signer` differs from
-  the app's first release (the signer is pinned). The server computes `size` and `sha256` itself.
+- **409** in three cases. The server computes `size` and `sha256` itself.
+  - `code` is not greater than the latest published code.
+  - `signer` differs from the app's first release (the signer is pinned).
+  - `build` differs from the app's first release (the build type is pinned).
 - `emu-publish` reads `meta` from the APK (`aapt2`, `apksigner`) and sends it.
 - Old releases may be pruned; malt keeps each app's three newest. The signer pin and the
   rising-code rule still count the releases that are kept.
@@ -105,6 +108,15 @@ browser. It reads:
 Anyone on the home Wi-Fi can list and download releases this way. Updates still go through
 `latest`, which needs an enrolled app's token. `emu-publish` sends the app's label (aapt2's
 `application: label`) with each release.
+
+## Debug and release builds
+
+An application id holds one build type. An app that publishes both gives its debug build its
+own id (`applicationIdSuffix = ".debug"`), so on depot and on a device the two are separate apps.
+They install side by side and each updates from its own releases. Channels inside one id were
+rejected: a device would swap one build for the other, and a release whose version code is below
+an installed debug build couldn't install. See
+[2026-11-24-2323-debug-builds-get-their-own-app-id](../docs/adr/2026-11-24-2323-debug-builds-get-their-own-app-id.md).
 
 ## Version codes
 

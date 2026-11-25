@@ -33,6 +33,11 @@
   .hash { font: 11px/1.4 ui-monospace, monospace; color: var(--muted); margin-top: 8px;
           overflow-wrap: anywhere; }
   .msg { color: var(--muted); padding: 16px 0; }
+  h2 { font-size: 15px; margin: 24px 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+         text-transform: uppercase; color: var(--muted); border: 1px solid var(--line);
+         border-radius: 6px; padding: 1px 6px; margin-left: 6px; vertical-align: 2px; }
   footer { color: var(--muted); font-size: 13px; margin-top: 24px; border-top: 1px solid var(--line);
            padding-top: 16px; }
   footer p { margin: 0 0 8px; }
@@ -65,11 +70,13 @@
     .then(r => r.ok ? r.json() : r.json().then(b => Promise.reject(new Error(b.error || r.status))))
     .then(({ apps }) => {
       if (!apps.length) return message("Nothing published yet.");
-      list.replaceChildren(...apps.map(a => {
+      const card = a => {
         const card = el("div", "app");
         const row = el("div", "row");
         const names = el("div", "names");
-        names.append(el("div", "label", a.label), el("div", "id", a.app));
+        const label = el("div", "label", a.label);
+        if (a.build === "debug") label.append(el("span", "tag", "debug"));
+        names.append(label, el("div", "id", a.app));
         const get = el("a", "get", "Download");
         get.href = a.url;
         get.setAttribute("download", "");
@@ -78,7 +85,15 @@
         if (a.notes) card.append(el("div", "notes", a.notes));
         card.append(el("div", "hash", "sha256 " + a.sha256));
         return card;
-      }));
+      };
+      const release = apps.filter(a => a.build !== "debug"), debug = apps.filter(a => a.build === "debug");
+      const parts = release.map(card);
+      if (debug.length) {
+        parts.push(el("h2", null, "Debug builds"),
+                   el("p", "sub", "Separate apps that install alongside the release ones."),
+                   ...debug.map(card));
+      }
+      list.replaceChildren(...parts);
     })
     .catch(e => message("Can't list apps: " + e.message));
 </script>
