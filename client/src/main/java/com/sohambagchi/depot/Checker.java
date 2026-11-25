@@ -134,6 +134,7 @@ final class Checker {
     }
 
     /** Null if the APK is this app at `code`, signed by `signer`; otherwise what is wrong with it. */
+    @SuppressWarnings("deprecation") // GET_SIGNATURES: the only signer some releases fill for archives
     private static String checkArchive(Context ctx, File apk, long code, String signer) {
         PackageManager pm = ctx.getPackageManager();
         PackageInfo info = pm.getPackageArchiveInfo(apk.getPath(),
