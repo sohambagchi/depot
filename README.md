@@ -163,8 +163,14 @@ journalctl --user -u depot -f                                       # access log
 
 Pruning: `depot-prune.timer` runs `depot --state ~/.local/state/depot --prune 3` every Friday
 at 03:00. It runs at the next start if malt was off then, and logs to
-`journalctl --user -u depot-prune`. It keeps each app's three newest releases and deletes older
-index entries and APKs. A publish and a prune can't overlap (`state/.lock`).
+`journalctl --user -u depot-prune`. A publish and a prune can't overlap (`state/.lock`).
+
+- **What it keeps.** Each app's three newest versions. An app is its release id and its debug id
+  (`<id>.debug`) together. A version is a version code, whose release and debug builds count
+  once, so an app holds at most 6 APKs.
+- **Never a missing build type.** Each id also keeps its own newest release, so a release build
+  that lags behind newer debug builds stays.
+- **What it deletes.** Everything else: older index entries and their APKs.
 
 ```ini
 # ~/.config/systemd/user/depot-prune.service
@@ -189,7 +195,7 @@ WantedBy=timers.target
 - **State.** The state is in `~/.local/state/depot`:
   - `devices.json`: enrolled devices. Delete an entry to revoke it; that device enrolls again over
     Tailscale on its next check.
-  - `apps/<id>/`: releases; the newest three after each Friday's prune.
+  - `apps/<id>/`: releases; after each Friday's prune, the app's three newest versions.
 - **Status.** `curl http://100.97.41.27:8473/v1/status` lists apps and devices (tailnet only).
   `/v1/health` answers anyone, for monitoring.
 - **Development.** Run `nix run .#depot -- --listen 127.0.0.1 --state /tmp/depot` for a local

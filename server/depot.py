@@ -95,23 +95,41 @@ def state_lock(state: Path):
         yield
 
 
+def family(idx: dict) -> str:
+    """The app an application id belongs to: a debug build's id without its ".debug" suffix."""
+    app = idx["app"]
+    return app.removesuffix(".debug") if idx.get("build") == "debug" else app
+
+
 def prune(state: Path, keep: int) -> None:
-    """Keeps each app's `keep` newest releases (by version code) and deletes the rest: their
-    index entries and their APKs, plus any APK the index doesn't list."""
+    """Keeps each app's `keep` newest versions and deletes older releases: their index entries
+    and APKs, plus any APK an index doesn't list.
+
+    An app is its release id and its debug id together, and a version is a version code, whose
+    debug and release builds count once (so at most 2 * keep APKs). Each id also keeps its own
+    newest release, so neither build type disappears from depot."""
     with state_lock(state):
+        apps: dict[str, list[tuple[Path, dict]]] = {}
         for idx_path in sorted((state / "apps").glob("*/index.json")):
             idx = json.loads(idx_path.read_text())
-            kept = sorted(idx["releases"], key=lambda r: r["code"])[-keep:]
-            dropped = len(idx["releases"]) - len(kept)
-            if dropped:
-                idx["releases"] = kept
-                write_json(idx_path, idx)
-            names = {f"{r['code']}.apk" for r in kept}
-            stray = [f for f in idx_path.parent.glob("*.apk") if f.name not in names]
-            for f in stray:
-                f.unlink()
-            log.info("pruned %s: kept %s, dropped %d release(s), deleted %d APK(s)",
-                     idx["app"], [r["code"] for r in kept], dropped, len(stray))
+            apps.setdefault(family(idx), []).append((idx_path, idx))
+        for members in apps.values():
+            codes = sorted({r["code"] for _, idx in members for r in idx["releases"]})
+            versions = set(codes[-keep:])
+            for idx_path, idx in members:
+                newest = max((r["code"] for r in idx["releases"]), default=None)
+                kept = sorted((r for r in idx["releases"] if r["code"] in versions or r["code"] == newest),
+                              key=lambda r: r["code"])
+                dropped = len(idx["releases"]) - len(kept)
+                if dropped:
+                    idx["releases"] = kept
+                    write_json(idx_path, idx)
+                names = {f"{r['code']}.apk" for r in kept}
+                stray = [f for f in idx_path.parent.glob("*.apk") if f.name not in names]
+                for f in stray:
+                    f.unlink()
+                log.info("pruned %s: kept %s, dropped %d release(s), deleted %d APK(s)",
+                         idx["app"], [r["code"] for r in kept], dropped, len(stray))
 
 
 def bind_socket(host: str, port: int) -> socket.socket:
@@ -475,7 +493,8 @@ def main() -> None:
     p.add_argument("--trust-proxy", action="append", metavar="ADDR",
                    help="reverse proxy whose X-Forwarded-For names the real client")
     p.add_argument("--prune", type=int, metavar="KEEP",
-                   help="instead of serving, keep each app's KEEP newest releases, delete the rest, and exit")
+                   help="instead of serving, keep each app's KEEP newest versions (debug and release builds "
+                        "of one version count once) and each build type's newest, delete the rest, and exit")
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     if args.prune is not None:

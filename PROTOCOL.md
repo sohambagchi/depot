@@ -91,8 +91,9 @@ in `latest`.
   - `signer` differs from the app's first release (the signer is pinned).
   - `build` differs from the app's first release (the build type is pinned).
 - `emu-publish` reads `meta` from the APK (`aapt2`, `apksigner`) and sends it.
-- Old releases may be pruned; malt keeps each app's three newest. The signer pin and the
-  rising-code rule still count the releases that are kept.
+- Old releases may be pruned. malt keeps each app's three newest version codes across its release
+  and debug ids, plus each id's newest release. The signer pin and the rising-code rule count the
+  releases that are kept; each id's newest is never pruned, so its codes still only rise.
 
 `GET /v1/status` (tailnet, allowed login) → published apps and enrolled devices, for debugging.
 

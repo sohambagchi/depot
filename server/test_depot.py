@@ -223,9 +223,28 @@ async def run(tmp: Path) -> None:
         assert [r["code"] for r in d.index("app.test")["releases"]] == [8, 9, 10]
         assert sorted(f.name for f in (apps / "app.test").glob("*.apk")) == ["10.apk", "8.apk", "9.apk"]
         assert [r["code"] for r in d.index("app.other")["releases"]] == [1]
+        assert [r["code"] for r in d.index("app.test.debug")["releases"]] == [3]  # its build type's newest
         assert (await publish(9))[0] == 409
         assert (await publish(11, signer="cd" * 32))[0] == 409
         assert (await publish(11))[0] == 200
+
+        # A version's debug and release builds count once across the app's two ids, and each id
+        # keeps its newest release even when it falls outside the newest versions.
+        async def pair(release=(), debug=()):
+            for c in release:
+                assert (await publish(c, app="app.pair"))[0] == 200
+            for c in debug:
+                assert (await publish(c, app="app.pair.debug", build="debug"))[0] == 200
+            depot.prune(tmp / "state", 3)
+            return ([r["code"] for r in d.index("app.pair")["releases"]],
+                    [r["code"] for r in d.index("app.pair.debug")["releases"]])
+
+        assert await pair(release=[100], debug=[101, 102, 103]) == ([100], [101, 102, 103])
+        assert await pair(release=[104], debug=[104, 105]) == ([104], [103, 104, 105])
+        assert await pair(release=[106, 107], debug=[106, 107]) == ([106, 107], [105, 106, 107])
+        assert await pair(release=[108], debug=[108]) == ([106, 107, 108], [106, 107, 108])
+        apks = sorted(f.name for f in apps.glob("app.pair*/*.apk"))  # the maximum: 3 versions x 2 builds
+        assert apks == ["106.apk", "106.apk", "107.apk", "107.apk", "108.apk", "108.apk"], apks
 
     await runner.cleanup()
 
