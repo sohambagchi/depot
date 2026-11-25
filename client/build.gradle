@@ -1,0 +1,45 @@
+// depot's client, included by an app's settings.gradle.kts as the `:depot` project (see
+// ../README.md). Groovy rather than Kotlin DSL: it has to build under whatever AGP the app uses
+// (8.x with the Kotlin plugin, 9.x with built-in Kotlin), and the client itself is plain Java.
+
+plugins {
+    id 'com.android.library'
+}
+
+// This directory is a read-only Nix store path, so outputs go under the app's build directory.
+layout.buildDirectory = rootProject.layout.buildDirectory.dir('depot-client')
+
+// Compile against the newest platform and build-tools in the app's SDK (a read-only Nix SDK can't fetch another).
+def sdkDir = System.getenv('ANDROID_HOME') ?: System.getenv('ANDROID_SDK_ROOT')
+def platform = sdkDir ? new File(sdkDir, 'platforms').list()?.findAll { it ==~ /android-\d+(\.\d+)?/ }
+        ?.max { it.substring(8).tokenize('.').collect { it as int }.with { it[0] * 100 + (it.size() > 1 ? it[1] : 0) } } : null
+if (platform == null) throw new GradleException("depot: no platform under \$ANDROID_HOME/platforms")
+def (sdkMajor, sdkMinor) = platform.substring(8).tokenize('.').collect { it as int } + [0]
+def buildTools = new File(sdkDir, 'build-tools').list()?.findAll { it ==~ /\d+\.\d+\.\d+/ }
+        ?.max { it.tokenize('.').collect { it as int }.with { it[0] * 10000 + it[1] * 100 + it[2] } }
+
+// Where the server is: DEPOT_URLS from the dev shell (android-emu's lib.depotEnv), or -Pdepot.urls.
+def urls = findProperty('depot.urls') ?: System.getenv('DEPOT_URLS') ?: ''
+
+android {
+    namespace 'com.sohambagchi.depot'
+    if (sdkMinor > 0) {
+        // AGP 9's form for minor API levels such as 37.2.
+        compileSdk { version = release(sdkMajor) { minorApiLevel = sdkMinor } }
+    } else {
+        compileSdk = sdkMajor
+    }
+    if (buildTools) buildToolsVersion = buildTools
+
+    defaultConfig {
+        minSdk 31
+        buildConfigField 'String', 'DEPOT_URLS', "\"${urls}\""
+    }
+    buildFeatures {
+        buildConfig true
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
