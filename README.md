@@ -1,8 +1,9 @@
 # depot
 
-Updates for apps built with android-emu. Apps fetch new builds from a server on malt:
+Self-updates for the user's Android apps (Blot, airlock-mobile, and any future app). Apps fetch
+new builds from a server on malt:
 
-1. `emu-publish` uploads a build to depot.
+1. `depot-publish` uploads a build to depot.
 2. The app finds it on its next check, downloads and verifies it, and posts "<App> <version> is ready".
 3. Tapping that notification installs the update.
 
@@ -12,25 +13,30 @@ The wire format, device identity and verification rules are in [PROTOCOL.md](PRO
 | --- | --- |
 | Server | [server/depot.py](server/depot.py); `packages.depot`, `nixosModules.depot`, `checks.depot` (its test) |
 | Client library | [client/](client/), plain Java, no dependencies; included as the Gradle project `:depot` |
-| Publishing | `emu-publish`, in `lib.mkEmu`'s outputs and this flake's dev shell |
+| Publishing | `packages.depot-publish`, also in this flake's dev shell |
 | Dev-shell settings | `lib.depotEnv`: `DEPOT_CLIENT`, `DEPOT_URLS`, `DEPOT_PUBLISH_URL` |
 
 ## App side
 
-**Flake.** Merge `depotEnv` into the dev shell and add `emu-publish`:
+**Flake.** Add depot as an input, merge `depotEnv` into the dev shell and add `depot-publish`:
 
 ```nix
+inputs.depot.url = "git+file:///home/soham/dev/depot";
+inputs.depot.inputs.nixpkgs.follows = "nixpkgs";   # share one nixpkgs
+
 devShells.${system}.default = pkgs.mkShell ({
-  packages = [ emu.sdk emu.emu-up emu.emu-down emu.emu-shot emu.emu-publish /* ... */ ];
+  packages = [ depot.packages.${system}.depot-publish /* ... */ ];
   # ...
-} // android-emu.lib.depotEnv);
+} // depot.lib.depotEnv);
 ```
+
+Pick up depot changes with `nix flake update depot`.
 
 **settings.gradle.kts.** Include the client only when the dev shell provides it. A build without
 it, such as a public open-source one, has no updater and no extra permissions.
 
 ```kotlin
-// depot's update client (android-emu), built in only when the dev shell provides it. Gradle
+// depot's update client (~/dev/depot), built in only when the dev shell provides it. Gradle
 // needs a writable project directory, so the read-only Nix store copy is mirrored into build/.
 System.getenv("DEPOT_CLIENT")?.let { source ->
     val dir = file("build/depot-client")
@@ -76,7 +82,7 @@ startActivity(Depot.updatesIntent(context))   // com.sohambagchi.depot.Depot
 
 The screen comes with the library. It shows the installed version, checks as soon as it opens,
 and says what it found: up to date, an update ready (with its notes and an Install button),
-nothing published, depot unreachable, or not enrolled yet (turn on Tailscale). `emu-publish`
+nothing published, depot unreachable, or not enrolled yet (turn on Tailscale). `depot-publish`
 refuses an APK in which no code of the app's own calls `updatesIntent`.
 
 `com.sohambagchi.depot.Depot` also has `checkNow(context)` (a background check),
@@ -152,8 +158,8 @@ installed from the tap with no dialog.
 
 ```sh
 gradle assembleRelease assembleDebug     # from a clean, committed tree
-emu-publish app/build/outputs/apk/release/app-release.apk [--notes TEXT]
-emu-publish app/build/outputs/apk/debug/app-debug.apk
+depot-publish app/build/outputs/apk/release/app-release.apk [--notes TEXT]
+depot-publish app/build/outputs/apk/debug/app-debug.apk
 ```
 
 - **What it sends.** It reads the application id, version code, name, label and build type with
@@ -163,12 +169,12 @@ emu-publish app/build/outputs/apk/debug/app-debug.apk
   version code isn't the commit count.
 - **Where.** It posts to `DEPOT_PUBLISH_URL`, the direct tailnet address; through the proxy, the
   publisher would look like a LAN client.
-- **The "Check for updates" item.** emu-publish reads the APK's dex code with `dexdump` and
+- **The "Check for updates" item.** depot-publish reads the APK's dex code with `dexdump` and
   refuses it unless it includes depot's client and some class outside the library calls
   `Depot.updatesIntent`. The library's consumer R8 rule keeps that method under its name and
   stops R8 from inlining it, so the call stays visible in shrunk release builds. See
-  [2026-11-25-0021-every-depot-app-has-a-check-for-updates-item](../docs/adr/2026-11-25-0021-every-depot-app-has-a-check-for-updates-item.md).
-- **What gets refused.** Both emu-publish and depot refuse an application id outside the
+  [2026-11-25-0021-every-depot-app-has-a-check-for-updates-item](docs/adr/2026-11-25-0021-every-depot-app-has-a-check-for-updates-item.md).
+- **What gets refused.** Both depot-publish and depot refuse an application id outside the
   `com.sohambagchi.<app>[.debug]` form, or one whose suffix doesn't match the build type. depot
   also answers 409 to a version code that isn't new, or to a different signer.
 
@@ -188,7 +194,7 @@ WantedBy=default.target
 ```
 
 ```sh
-nix build ~/dev/android-emu#depot -o ~/.local/state/depot-server   # build or update (a GC root)
+nix build ~/dev/depot#depot -o ~/.local/state/depot-server   # build or update (a GC root)
 systemctl --user enable --now depot                                 # or: restart, status
 journalctl --user -u depot -f                                       # access log shows fwd=<client> behind the proxy
 ```

@@ -5,7 +5,7 @@
 **Context:** airlock-mobile and Blot are sideloaded, and every new build meant `adb install` on each device. The user wanted one update mechanism that every android-emu app picks up, reusing airlock's tailnet/LAN device authentication.
 **Decision:**
 - **Server.** depot runs on malt, reached through buckwheat's HTTPS proxy or directly over the tailnet (see [2026-11-24-2241-depot-behind-buckwheat-proxy](2026-11-24-2241-depot-behind-buckwheat-proxy.md)). Each app includes a client library from this repo, `depot/client`.
-- **Device identity.** airlock-mobile's scheme, generalised in [PROTOCOL.md](../../depot/PROTOCOL.md): a Keystore P-256 key, enrolled over the tailnet after `tailscale whois` checks the node, then a signed nonce for each session, through the proxy or directly. Each service uses its own context string.
+- **Device identity.** airlock-mobile's scheme, generalised in [PROTOCOL.md](../../PROTOCOL.md): a Keystore P-256 key, enrolled over the tailnet after `tailscale whois` checks the node, then a signed nonce for each session, through the proxy or directly. Each service uses its own context string.
 - **Updating.** The app downloads and verifies a newer build, then notifies; a tap installs it through a PackageInstaller self-update, with no system dialog (`UPDATE_PACKAGES_WITHOUT_USER_ACTION`).
 - **Publishing.** `emu-publish` publishes from a clean tree over the tailnet. The server pins each app's first signer and rejects version codes that don't rise.
 - **The client.** It is plain Java with no dependencies, compiled against whatever platform the app's SDK holds, and included only when the dev shell sets `DEPOT_CLIENT`.

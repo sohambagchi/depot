@@ -5,7 +5,7 @@
   - **Enroll.** Enrollment worked over the tailnet.
   - **Download and notify.** It downloaded and verified each published build and showed "<App> <version> is ready".
   - **Install.** A tap installed it with no system dialog.
-- **Protocol.** [depot/PROTOCOL.md](../../depot/PROTOCOL.md) covers device identity (airlock's enroll-then-sign scheme, generalised), the update and publish endpoints, and the version-code rule.
+- **Protocol.** [depot/PROTOCOL.md](../../PROTOCOL.md) covers device identity (airlock's enroll-then-sign scheme, generalised), the update and publish endpoints, and the version-code rule.
 - **Server.** `depot/server/depot.py` is an aiohttp server. It is `packages.depot` and `nixosModules.depot`, and its HTTP test is `checks.depot` (enrollment rules, nonce replay, contexts, pinned signer, rising version codes, revocation, and X-Forwarded-For only from the trusted proxy).
 - **Client.** `depot/client` is a dependency-free Java library. It has:
   - a start-up provider, a 6-hourly JobScheduler check, download and verification, and the notification
@@ -13,5 +13,5 @@
   - builds under AGP 8.10 / SDK 35 and AGP 9.5 / SDK 37.2
 - **`emu-publish`** (in `lib.mkEmu`) reads the APK's id, version and signer, refuses dirty trees, and uploads.
 - **`lib.depotEnv`** gives app dev shells `DEPOT_CLIENT`, `DEPOT_URLS` and `DEPOT_PUBLISH_URL`.
-- How to integrate an app and run the server: [depot/README.md](../../depot/README.md).
+- How to integrate an app and run the server: [depot/README.md](../../README.md).
 - Rationale: see ADRs [2026-11-24-2209-app-updates-through-depot](../adr/2026-11-24-2209-app-updates-through-depot.md) and [2026-11-24-2241-depot-behind-buckwheat-proxy](../adr/2026-11-24-2241-depot-behind-buckwheat-proxy.md)

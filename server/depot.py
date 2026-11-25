@@ -411,7 +411,7 @@ class Depot:
             label = str(meta.get("label") or "")[:64]
             build = meta.get("build")
             if build not in BUILDS:
-                raise ValueError("build must be \"debug\" or \"release\" (is emu-publish up to date?)")
+                raise ValueError("build must be \"debug\" or \"release\" (is depot-publish up to date?)")
             m = PUBLISHABLE.match(app)
             if not m:
                 raise ValueError(f"application id {app!r} is not com.sohambagchi.<app> (lowercase), "
@@ -460,7 +460,7 @@ class Depot:
         return web.FileResponse(PAGE, headers={"Content-Type": "text/html; charset=utf-8"})
 
     async def health(self, request: web.Request) -> web.Response:
-        return web.json_response({"service": "depot", "protocol": 1, "docs": "android-emu/depot/PROTOCOL.md"})
+        return web.json_response({"service": "depot", "protocol": 1, "docs": "depot/PROTOCOL.md"})
 
     def app(self) -> web.Application:
         app = web.Application(client_max_size=MAX_APK + 1024 * 1024)

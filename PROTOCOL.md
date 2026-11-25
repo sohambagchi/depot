@@ -1,6 +1,6 @@
 # depot protocol, version 1
 
-How an app built with android-emu finds and installs its own updates from `depot`, a server on
+How an app finds and installs its own updates from `depot`, a server on
 the homelab. Device identity is airlock's phone scheme
 (`airlock/docs/adr/2026-11-23-2230-phone-enrolls-over-tailnet.md`), generalised so other
 services can reuse it.
@@ -15,7 +15,7 @@ reached two ways:
   reaches it over the LAN.
 - **Directly.** `http://100.97.41.27:8473` over the tailnet, which WireGuard encrypts. Used to
   publish from malt, and by emulators on malt, which reach buckwheat over the LAN. See
-  [2026-11-25-0007-apps-reach-depot-over-https-only](../docs/adr/2026-11-25-0007-apps-reach-depot-over-https-only.md).
+  [2026-11-25-0007-apps-reach-depot-over-https-only](docs/adr/2026-11-25-0007-apps-reach-depot-over-https-only.md).
 
 When the caller is depot's trusted proxy, depot takes the caller's address from the last
 `X-Forwarded-For` entry (the one the proxy added); from anyone else, it ignores that header.
@@ -97,7 +97,7 @@ in `latest`.
   underscores) for a release build, or `com.sohambagchi.<app>.debug` for a debug build.
 - **409** if `code` is not greater than the latest published code, or if `signer` differs from
   the app's first release (the signer is pinned). The server computes `size` and `sha256` itself.
-- `emu-publish` reads `meta` from the APK (`aapt2`, `apksigner`) and sends it.
+- `depot-publish` reads `meta` from the APK (`aapt2`, `apksigner`) and sends it.
 - Old releases may be pruned. malt keeps each app's three newest version codes across its release
   and debug ids, plus each id's newest release. The signer pin and the rising-code rule count the
   releases that are kept; each id's newest is never pruned, so its codes still only rise.
@@ -116,7 +116,7 @@ newest release, then dropdowns for the app's debug builds and its older versions
 - **`GET /v1/health`** → `{"service": "depot", "protocol": 1, …}`, with no auth.
 
 Anyone on the home Wi-Fi can list and download releases this way. Updates still go through
-`latest`, which needs an enrolled app's token. `emu-publish` sends the app's label (aapt2's
+`latest`, which needs an enrolled app's token. `depot-publish` sends the app's label (aapt2's
 `application: label`) with each release.
 
 ## Application ids
@@ -126,11 +126,11 @@ An app's release builds use `com.sohambagchi.<app>`, and its debug builds use
 the two builds are separate apps: they install side by side and each updates from its own
 releases. The id decides the build type, and depot refuses a publish where they disagree.
 Release `com.sohambagchi.<app>` and debug `com.sohambagchi.<app>.debug` make up one app for
-pruning. See [2026-11-24-2345-app-ids-are-com-sohambagchi](../docs/adr/2026-11-24-2345-app-ids-are-com-sohambagchi.md).
+pruning. See [2026-11-24-2345-app-ids-are-com-sohambagchi](docs/adr/2026-11-24-2345-app-ids-are-com-sohambagchi.md).
 
 ## Version codes
 
-Every publish needs a larger `versionCode`. android-emu apps take it from
+Every publish needs a larger `versionCode`. Apps take it from
 `git rev-list --count HEAD` and take `versionName` from the latest `[X.Y.Z]` commit subject
 (see [README.md](README.md#app-side)). `[X.Y.Z]` itself isn't monotonic across branches, so it
 can't be the code.

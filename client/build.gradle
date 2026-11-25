@@ -16,7 +16,7 @@ def (sdkMajor, sdkMinor) = platform.substring(8).tokenize('.').collect { it as i
 def buildTools = new File(sdkDir, 'build-tools').list()?.findAll { it ==~ /\d+\.\d+\.\d+/ }
         ?.max { it.tokenize('.').collect { it as int }.with { it[0] * 10000 + it[1] * 100 + it[2] } }
 
-// Where the server is: DEPOT_URLS from the dev shell (android-emu's lib.depotEnv), or -Pdepot.urls.
+// Where the server is: DEPOT_URLS from the dev shell (depot's lib.depotEnv), or -Pdepot.urls.
 def urls = findProperty('depot.urls') ?: System.getenv('DEPOT_URLS') ?: ''
 
 // The only hosts the app may reach over plain HTTP: those of depot's http:// URLs, plus any the

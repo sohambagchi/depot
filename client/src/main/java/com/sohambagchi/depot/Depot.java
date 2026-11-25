@@ -12,13 +12,13 @@ import java.io.File;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Updates for this app from depot (see android-emu's depot/PROTOCOL.md).
+ * Updates for this app from depot (see depot's PROTOCOL.md).
  *
  * Including the library is enough for automatic updates: a periodic job checks for a newer
  * build, downloads and verifies it, and posts a notification that installs it on tap.
  *
  * Every app must also offer a manual check: a "Check for updates" item in its settings or a
- * menu that starts {@link #updatesIntent}. emu-publish refuses an APK without one.
+ * menu that starts {@link #updatesIntent}. depot-publish refuses an APK without one.
  */
 public final class Depot {
     static final String TAG = "depot";
