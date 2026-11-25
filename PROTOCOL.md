@@ -86,6 +86,8 @@ in `latest`.
 - **409** if `code` is not greater than the latest published code, or if `signer` differs from
   the app's first release (the signer is pinned). The server computes `size` and `sha256` itself.
 - `emu-publish` reads `meta` from the APK (`aapt2`, `apksigner`) and sends it.
+- Old releases may be pruned; malt keeps each app's three newest. The signer pin and the
+  rising-code rule still count the releases that are kept.
 
 `GET /v1/status` (tailnet, allowed login) → published apps and enrolled devices, for debugging.
 `GET /` → `{"service": "depot", "protocol": 1, …}`, a health check that needs no auth.

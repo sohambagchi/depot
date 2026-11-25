@@ -73,9 +73,9 @@ async def run(tmp: Path) -> None:
                 body = await r.read()
                 return r.status, (json.loads(body) if r.content_type == "application/json" else body)
 
-        async def publish(code, signer=SIGNER, data=None):
+        async def publish(code, signer=SIGNER, data=None, app="app.test"):
             form = aiohttp.FormData()
-            form.add_field("meta", json.dumps({"app": "app.test", "code": code, "name": f"0.{code}.0",
+            form.add_field("meta", json.dumps({"app": app, "code": code, "name": f"0.{code}.0",
                                                "signer": signer, "notes": "n"}), content_type="application/json")
             form.add_field("apk", data or apk_bytes(str(code).encode()), filename="a.apk")
             return await post("/v1/publish", data=form)
@@ -178,6 +178,21 @@ async def run(tmp: Path) -> None:
         tailnet["yes"] = True
         depot.write_json(d.devices_path, {"devices": {}})
         assert (await get("/v1/apps/app.test/latest", token))[0] == 401
+
+        # Pruning keeps the newest releases per app, drops older entries and APKs, and leaves
+        # the signer pin and the rising-code rule as they were.
+        for code in (8, 9, 10):
+            assert (await publish(code))[0] == 200
+        assert (await publish(1, app="app.other"))[0] == 200
+        apps = tmp / "state" / "apps"
+        (apps / "app.test" / "3.apk").write_bytes(b"stray")
+        depot.prune(tmp / "state", 3)
+        assert [r["code"] for r in d.index("app.test")["releases"]] == [8, 9, 10]
+        assert sorted(f.name for f in (apps / "app.test").glob("*.apk")) == ["10.apk", "8.apk", "9.apk"]
+        assert [r["code"] for r in d.index("app.other")["releases"]] == [1]
+        assert (await publish(9))[0] == 409
+        assert (await publish(11, signer="cd" * 32))[0] == 409
+        assert (await publish(11))[0] == 200
 
     await runner.cleanup()
 

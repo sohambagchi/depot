@@ -128,6 +128,25 @@ systemctl --user enable --now depot                                 # or: restar
 journalctl --user -u depot -f                                       # access log shows fwd=<client> behind the proxy
 ```
 
+Pruning: `depot-prune.timer` runs `depot --state ~/.local/state/depot --prune 3` every Friday
+at 03:00. It runs at the next start if malt was off then, and logs to
+`journalctl --user -u depot-prune`. It keeps each app's three newest releases and deletes older
+index entries and APKs. A publish and a prune can't overlap (`state/.lock`).
+
+```ini
+# ~/.config/systemd/user/depot-prune.service
+[Service]
+Type=oneshot
+ExecStart=%h/.local/state/depot-server/bin/depot --state %h/.local/state/depot --prune 3
+
+# ~/.config/systemd/user/depot-prune.timer
+[Timer]
+OnCalendar=Fri *-*-* 03:00:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+```
+
 - **The proxy.** `https://depot.wheat.sohambagchi.com` is Caddy on buckwheat (100.77.198.14):
   TLS, DNS and certificates live there. It forwards plain HTTP to 100.97.41.27:8473.
   `--trust-proxy` makes depot read the client's address from its `X-Forwarded-For`.
@@ -137,9 +156,9 @@ journalctl --user -u depot -f                                       # access log
 - **State.** The state is in `~/.local/state/depot`:
   - `devices.json`: enrolled devices. Delete an entry to revoke it; that device enrolls again over
     Tailscale on its next check.
-  - `apps/<id>/`: releases. Every APK is kept.
+  - `apps/<id>/`: releases; the newest three after each Friday's prune.
 - **Status.** `curl http://100.97.41.27:8473/v1/status` lists apps and devices (tailnet only).
 - **Development.** Run `nix run .#depot -- --listen 127.0.0.1 --state /tmp/depot` for a local
   server, and `nix build .#checks.x86_64-linux.depot` for the test.
 - **System service.** `nixosModules.depot` (`services.depot`) runs the same server as a system
-  service. It isn't used on malt.
+  service, with `prune.keep` and `prune.onCalendar` for the same schedule. It isn't used on malt.

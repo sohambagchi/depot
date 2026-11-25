@@ -5,12 +5,15 @@ State directory layout:
   devices.json                 {"devices": {id: {name, node, login, key, enrolled_at, last_seen}}}
   apps/<app id>/index.json     {"app", "signer", "releases": [release, ...]}
   apps/<app id>/<code>.apk
+  .lock                        held while an app's releases change (publish, --prune)
 """
 
 import argparse
 import asyncio
 import base64
 import binascii
+import contextlib
+import fcntl
 import hashlib
 import ipaddress
 import json
@@ -70,6 +73,34 @@ def write_atomic(path: Path, data: bytes) -> None:
 
 def write_json(path: Path, obj) -> None:
     write_atomic(path, (json.dumps(obj, indent=2) + "\n").encode())
+
+
+@contextlib.contextmanager
+def state_lock(state: Path):
+    """An exclusive lock on the state directory, so `--prune` never interleaves with a publish."""
+    state.mkdir(parents=True, exist_ok=True)
+    with open(state / ".lock", "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        yield
+
+
+def prune(state: Path, keep: int) -> None:
+    """Keeps each app's `keep` newest releases (by version code) and deletes the rest: their
+    index entries and their APKs, plus any APK the index doesn't list."""
+    with state_lock(state):
+        for idx_path in sorted((state / "apps").glob("*/index.json")):
+            idx = json.loads(idx_path.read_text())
+            kept = sorted(idx["releases"], key=lambda r: r["code"])[-keep:]
+            dropped = len(idx["releases"]) - len(kept)
+            if dropped:
+                idx["releases"] = kept
+                write_json(idx_path, idx)
+            names = {f"{r['code']}.apk" for r in kept}
+            stray = [f for f in idx_path.parent.glob("*.apk") if f.name not in names]
+            for f in stray:
+                f.unlink()
+            log.info("pruned %s: kept %s, dropped %d release(s), deleted %d APK(s)",
+                     idx["app"], [r["code"] for r in kept], dropped, len(stray))
 
 
 def bind_socket(host: str, port: int) -> socket.socket:
@@ -324,18 +355,19 @@ class Depot:
         except (ValueError, KeyError, TypeError) as e:
             return error(400, f"bad publish: {e}")
         async with self.lock:
-            idx = self.index(app) or {"app": app, "signer": signer, "releases": []}
-            if signer != idx["signer"]:
-                return error(409, f"{app} is pinned to signer {idx['signer']}; this APK is signed by {signer}")
-            top = max((r["code"] for r in idx["releases"]), default=0)
-            if code <= top:
-                return error(409, f"version code {code} is not greater than the published {top}")
-            rel = {"code": code, "name": name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
-                   "signer": signer, "notes": notes, "published_at": now_ms(),
-                   "published_by": f"{who['login']} on {who['node']}"}
-            write_atomic(self.app_dir(app) / f"{code}.apk", data)
-            idx["releases"].append(rel)
-            write_json(self.app_dir(app) / "index.json", idx)
+            with state_lock(self.state):  # held for milliseconds, as a prune is
+                idx = self.index(app) or {"app": app, "signer": signer, "releases": []}
+                if signer != idx["signer"]:
+                    return error(409, f"{app} is pinned to signer {idx['signer']}; this APK is signed by {signer}")
+                top = max((r["code"] for r in idx["releases"]), default=0)
+                if code <= top:
+                    return error(409, f"version code {code} is not greater than the published {top}")
+                rel = {"code": code, "name": name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+                       "signer": signer, "notes": notes, "published_at": now_ms(),
+                       "published_by": f"{who['login']} on {who['node']}"}
+                write_atomic(self.app_dir(app) / f"{code}.apk", data)
+                idx["releases"].append(rel)
+                write_json(self.app_dir(app) / "index.json", idx)
         log.info("published %s %s (%d) from %s", app, name, code, who["node"])
         return web.json_response(self.release_view(rel, app))
 
@@ -387,8 +419,8 @@ async def serve(depot: Depot, port: int) -> None:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Serve app updates to enrolled devices (see PROTOCOL.md).")
-    p.add_argument("--listen", action="append", required=True, metavar="ADDR",
+    p = argparse.ArgumentParser(prog="depot", description="Serve app updates to enrolled devices (see PROTOCOL.md).")
+    p.add_argument("--listen", action="append", metavar="ADDR",
                    help="address to listen on; repeat for LAN and tailnet")
     p.add_argument("--port", type=int, default=8473)
     p.add_argument("--state", type=Path, required=True, help="directory for devices.json and apps/")
@@ -398,8 +430,17 @@ def main() -> None:
                    help="if given, only these Tailscale nodes may enroll")
     p.add_argument("--trust-proxy", action="append", metavar="ADDR",
                    help="reverse proxy whose X-Forwarded-For names the real client")
+    p.add_argument("--prune", type=int, metavar="KEEP",
+                   help="instead of serving, keep each app's KEEP newest releases, delete the rest, and exit")
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    if args.prune is not None:
+        if args.prune < 1:
+            p.error("--prune must keep at least one release")
+        prune(args.state.resolve(), args.prune)
+        return
+    if not args.listen:
+        p.error("--listen is required to serve")
     args.state.mkdir(parents=True, exist_ok=True)
     depot = Depot(args.state.resolve(), args.listen, args.login, args.node, args.trust_proxy)
     asyncio.run(serve(depot, args.port))
