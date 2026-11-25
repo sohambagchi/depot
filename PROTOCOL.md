@@ -64,7 +64,8 @@ When the caller is depot's trusted proxy, depot takes the caller's address from 
 ```
 
 `GET /v1/apps/<app id>/<code>.apk` → the APK (`application/vnd.android.package-archive`, with a
-`Content-Disposition` file name). It needs a bearer token, unless the caller is on the home LAN
+`Content-Disposition` file name `<app>-v<version>.apk`, or `<app>-v<version>.debug.apk` for a debug
+build). It needs a bearer token, unless the caller is on the home LAN
 (a private address) or the tailnet, for the download page.
 
 The client offers the update only when all of these hold:
@@ -86,10 +87,10 @@ never reaches the install prompt.
 in `latest`.
 
 - Accepted only from a tailnet address whose whois login is allowed. There is no device key.
-- **409** in three cases. The server computes `size` and `sha256` itself.
-  - `code` is not greater than the latest published code.
-  - `signer` differs from the app's first release (the signer is pinned).
-  - `build` differs from the app's first release (the build type is pinned).
+- **400** if `app` isn't `com.sohambagchi.<app>` (`<app>` lowercase letters, digits and
+  underscores) for a release build, or `com.sohambagchi.<app>.debug` for a debug build.
+- **409** if `code` is not greater than the latest published code, or if `signer` differs from
+  the app's first release (the signer is pinned). The server computes `size` and `sha256` itself.
 - `emu-publish` reads `meta` from the APK (`aapt2`, `apksigner`) and sends it.
 - Old releases may be pruned. malt keeps each app's three newest version codes across its release
   and debug ids, plus each id's newest release. The signer pin and the rising-code rule count the
@@ -110,14 +111,14 @@ Anyone on the home Wi-Fi can list and download releases this way. Updates still 
 `latest`, which needs an enrolled app's token. `emu-publish` sends the app's label (aapt2's
 `application: label`) with each release.
 
-## Debug and release builds
+## Application ids
 
-An application id holds one build type. An app that publishes both gives its debug build its
-own id (`applicationIdSuffix = ".debug"`), so on depot and on a device the two are separate apps.
-They install side by side and each updates from its own releases. Channels inside one id were
-rejected: a device would swap one build for the other, and a release whose version code is below
-an installed debug build couldn't install. See
-[2026-11-24-2323-debug-builds-get-their-own-app-id](../docs/adr/2026-11-24-2323-debug-builds-get-their-own-app-id.md).
+An app's release builds use `com.sohambagchi.<app>`, and its debug builds use
+`com.sohambagchi.<app>.debug` (`applicationIdSuffix = ".debug"`). So on depot and on a device,
+the two builds are separate apps: they install side by side and each updates from its own
+releases. The id decides the build type, and depot refuses a publish where they disagree.
+Release `com.sohambagchi.<app>` and debug `com.sohambagchi.<app>.debug` make up one app for
+pruning. See [2026-11-24-2345-app-ids-are-com-sohambagchi](../docs/adr/2026-11-24-2345-app-ids-are-com-sohambagchi.md).
 
 ## Version codes
 

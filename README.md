@@ -76,19 +76,25 @@ Apps that want an in-app control can use `com.sohambagchi.depot.Depot`:
 - **Signing key.** Every build must be signed with the same key, kept outside the repo; for
   example `~/.android/<app>.jks`, as airlock-mobile does. The first published release pins its
   signer on the server.
-- **Debug and release builds.** Each application id on depot takes one build type, pinned by its
-  first publish. To publish both, give debug builds their own id and label, as Blot does:
+- **Application ids.** depot only publishes `com.sohambagchi.<app>` (lowercase) for release
+  builds and `com.sohambagchi.<app>.debug` for debug builds, with a label of their own:
 
   ```kotlin
+  defaultConfig {
+      applicationId = "com.sohambagchi.<app>"
+      manifestPlaceholders["appLabel"] = "<app>"             // with android:label="${appLabel}"
+  }
   buildTypes {
       debug {
           applicationIdSuffix = ".debug"
-          manifestPlaceholders["appLabel"] = "<App> debug"  // with android:label="${appLabel}"
+          manifestPlaceholders["appLabel"] = "<app> debug"
       }
   }
   ```
 
-  Both may use the same signing key. The download page lists debug builds in their own section.
+  Both builds may use the same signing key. They install side by side, the download page lists
+  debug builds in their own section, and downloads are named `<app>-v<version>.apk` and
+  `<app>-v<version>.debug.apk`.
 - **Cleartext HTTP.** The library merges `android:usesCleartextTraffic="true"`, for the direct
   tailnet address, which enrolling needs. Tailscale encrypts that path. An app with its own
   `networkSecurityConfig` must permit cleartext to `100.97.41.27` there.
@@ -137,8 +143,10 @@ emu-publish app/build/outputs/apk/debug/app-debug.apk
 - **Dirty trees.** It refuses a dirty tree (`--allow-dirty` overrides this), and warns when the
   version code isn't the commit count.
 - **Where.** It posts to `DEPOT_PUBLISH_URL`, the direct tailnet address; through the proxy, the
-  publisher would look like a LAN client. depot answers 409 to a version code
-  that isn't new, a different signer, or a different build type.
+  publisher would look like a LAN client.
+- **What gets refused.** Both emu-publish and depot refuse an application id outside the
+  `com.sohambagchi.<app>[.debug]` form, or one whose suffix doesn't match the build type. depot
+  also answers 409 to a version code that isn't new, or to a different signer.
 
 ## Server (malt)
 

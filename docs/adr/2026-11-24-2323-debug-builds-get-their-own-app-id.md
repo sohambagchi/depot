@@ -1,6 +1,6 @@
 # Debug and release builds are separate apps on depot
 
-**Status:** accepted
+**Status:** superseded by [2026-11-24-2345-app-ids-are-com-sohambagchi](2026-11-24-2345-app-ids-are-com-sohambagchi.md)
 
 **Context:** The user wanted depot to carry debug and release builds separately. depot keyed releases only by application id, so a debug and a release build sharing an id would replace each other on a device, and nothing stopped one from being published over the other.
 **Decision:**

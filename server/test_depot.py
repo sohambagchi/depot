@@ -76,7 +76,7 @@ async def run(tmp: Path) -> None:
                 body = json.loads(body) if r.content_type == "application/json" else body
                 return (r.status, body, r.headers) if full else (r.status, body)
 
-        async def publish(code, signer=SIGNER, data=None, app="app.test", build="release"):
+        async def publish(code, signer=SIGNER, data=None, app="com.sohambagchi.test", build="release"):
             form = aiohttp.FormData()
             meta = {"app": app, "code": code, "name": f"0.{code}.0", "label": "Test App", "signer": signer, "notes": "n"}
             if build:
@@ -129,8 +129,8 @@ async def run(tmp: Path) -> None:
         assert (await post("/v1/session", json=req))[0] == 403  # replay
 
         # Nothing published yet; no token, no answer.
-        assert (await get("/v1/apps/app.test/latest"))[0] == 401
-        assert (await get("/v1/apps/app.test/latest", token))[0] == 404
+        assert (await get("/v1/apps/com.sohambagchi.test/latest"))[0] == 401
+        assert (await get("/v1/apps/com.sohambagchi.test/latest", token))[0] == 404
 
         # Publishing: tailnet only; codes must rise; the signer is pinned.
         s, _ = await publish(5)
@@ -138,7 +138,7 @@ async def run(tmp: Path) -> None:
         tailnet["yes"] = True
         s, rel = await publish(5)
         assert s == 200, rel
-        assert rel["sha256"] == hashlib.sha256(apk_bytes(b"5")).hexdigest() and rel["url"] == "/v1/apps/app.test/5.apk"
+        assert rel["sha256"] == hashlib.sha256(apk_bytes(b"5")).hexdigest() and rel["url"] == "/v1/apps/com.sohambagchi.test/5.apk"
         assert (await publish(5))[0] == 409
         assert (await publish(4))[0] == 409
         assert (await publish(6, signer="cd" * 32))[0] == 409
@@ -146,18 +146,18 @@ async def run(tmp: Path) -> None:
         assert (await publish(7))[0] == 200
         tailnet["yes"] = False
 
-        s, latest = await get("/v1/apps/app.test/latest", token)
+        s, latest = await get("/v1/apps/com.sohambagchi.test/latest", token)
         assert s == 200 and latest["code"] == 7 and latest["name"] == "0.7.0" and latest["signer"] == SIGNER, latest
         s, body = await get(latest["url"], token)
         assert s == 200 and hashlib.sha256(body).hexdigest() == latest["sha256"]
-        assert (await get("/v1/apps/app.test/6.apk", token))[0] == 404
+        assert (await get("/v1/apps/com.sohambagchi.test/6.apk", token))[0] == 404
         assert (await get("/v1/apps/..%2Fdevices.json/latest", token))[0] == 404
 
         # Status is tailnet-only.
         assert (await get("/v1/status"))[0] == 403
         tailnet["yes"] = True
         s, st = await get("/v1/status")
-        assert s == 200 and st["apps"]["app.test"]["latest"]["code"] == 7 and st["devices"][0]["id"] == device
+        assert s == 200 and st["apps"]["com.sohambagchi.test"]["latest"]["code"] == 7 and st["devices"][0]["id"] == device
 
         # Behind the proxy, the last X-Forwarded-For entry is the client.
         tailnet["yes"] = False
@@ -185,45 +185,50 @@ async def run(tmp: Path) -> None:
         assert s == 200 and b"<title>depot</title>" in page
         for fwd in (None, "192.168.0.50", "100.101.102.103"):
             s, cat = await get("/v1/catalog", fwd=fwd)
-            assert s == 200 and [(a["app"], a["code"], a["label"]) for a in cat["apps"]] == [("app.test", 7, "Test App")], cat
+            assert s == 200 and [(a["app"], a["code"], a["label"]) for a in cat["apps"]] == [("com.sohambagchi.test", 7, "Test App")], cat
         assert (await get("/v1/catalog", fwd="8.8.8.8"))[0] == 403
-        s, body, headers = await get("/v1/apps/app.test/7.apk", fwd="192.168.0.50", full=True)
+        s, body, headers = await get("/v1/apps/com.sohambagchi.test/7.apk", fwd="192.168.0.50", full=True)
         assert s == 200 and body == apk_bytes(b"7"), s
-        assert headers["Content-Disposition"] == 'attachment; filename="app.test-0.7.0.apk"'
-        assert (await get("/v1/apps/app.test/7.apk", fwd="8.8.8.8"))[0] == 401
-        assert (await get("/v1/apps/app.test/latest", fwd="192.168.0.50"))[0] == 401
+        assert headers["Content-Disposition"] == 'attachment; filename="test-v0.7.0.apk"'
+        assert (await get("/v1/apps/com.sohambagchi.test/7.apk", fwd="8.8.8.8"))[0] == 401
+        assert (await get("/v1/apps/com.sohambagchi.test/latest", fwd="192.168.0.50"))[0] == 401
 
-        # Debug and release builds: each application id takes one build type.
+        # Application ids: com.sohambagchi.<app> for release builds, and .debug for debug builds.
         tailnet["yes"] = True
         assert (await publish(8, build=None))[0] == 400
+        for bad in ("app.test", "com.sohambagchi.Test", "com.sohambagchi.test.extra", "com.example.test"):
+            s, body = await publish(8, app=bad)
+            assert s == 400 and "com.sohambagchi.<app>" in body["error"], (bad, body)
         s, body = await publish(8, build="debug")
-        assert s == 409 and "applicationIdSuffix" in body["error"], body
-        s, rel = await publish(3, app="app.test.debug", build="debug")
+        assert s == 400 and "applicationIdSuffix" in body["error"], body
+        s, rel = await publish(3, app="com.sohambagchi.test.debug", build="debug")
         assert s == 200 and rel["build"] == "debug", rel
-        assert (await publish(4, app="app.test.debug"))[0] == 409  # a release build under the debug id
+        assert (await publish(4, app="com.sohambagchi.test.debug"))[0] == 400  # a release build under the debug id
+        s, _, headers = await get("/v1/apps/com.sohambagchi.test.debug/3.apk", fwd="192.168.0.50", full=True)
+        assert headers["Content-Disposition"] == 'attachment; filename="test-v0.3.0.debug.apk"'
         s, cat = await get("/v1/catalog")
-        assert [(a["app"], a["build"]) for a in cat["apps"]] == [("app.test", "release"), ("app.test.debug", "debug")], cat
+        assert [(a["app"], a["build"]) for a in cat["apps"]] == [("com.sohambagchi.test", "release"), ("com.sohambagchi.test.debug", "debug")], cat
         s, st = await get("/v1/status")
-        assert st["apps"]["app.test.debug"]["build"] == "debug" and st["apps"]["app.test"]["build"] == "release"
+        assert st["apps"]["com.sohambagchi.test.debug"]["build"] == "debug" and st["apps"]["com.sohambagchi.test"]["build"] == "release"
         tailnet["yes"] = False
 
         # Revoking the device kills its token.
         tailnet["yes"] = True
         depot.write_json(d.devices_path, {"devices": {}})
-        assert (await get("/v1/apps/app.test/latest", token))[0] == 401
+        assert (await get("/v1/apps/com.sohambagchi.test/latest", token))[0] == 401
 
         # Pruning keeps the newest releases per app, drops older entries and APKs, and leaves
         # the signer pin and the rising-code rule as they were.
         for code in (8, 9, 10):
             assert (await publish(code))[0] == 200
-        assert (await publish(1, app="app.other"))[0] == 200
+        assert (await publish(1, app="com.sohambagchi.other"))[0] == 200
         apps = tmp / "state" / "apps"
-        (apps / "app.test" / "3.apk").write_bytes(b"stray")
+        (apps / "com.sohambagchi.test" / "3.apk").write_bytes(b"stray")
         depot.prune(tmp / "state", 3)
-        assert [r["code"] for r in d.index("app.test")["releases"]] == [8, 9, 10]
-        assert sorted(f.name for f in (apps / "app.test").glob("*.apk")) == ["10.apk", "8.apk", "9.apk"]
-        assert [r["code"] for r in d.index("app.other")["releases"]] == [1]
-        assert [r["code"] for r in d.index("app.test.debug")["releases"]] == [3]  # its build type's newest
+        assert [r["code"] for r in d.index("com.sohambagchi.test")["releases"]] == [8, 9, 10]
+        assert sorted(f.name for f in (apps / "com.sohambagchi.test").glob("*.apk")) == ["10.apk", "8.apk", "9.apk"]
+        assert [r["code"] for r in d.index("com.sohambagchi.other")["releases"]] == [1]
+        assert [r["code"] for r in d.index("com.sohambagchi.test.debug")["releases"]] == [3]  # its build type's newest
         assert (await publish(9))[0] == 409
         assert (await publish(11, signer="cd" * 32))[0] == 409
         assert (await publish(11))[0] == 200
@@ -232,18 +237,18 @@ async def run(tmp: Path) -> None:
         # keeps its newest release even when it falls outside the newest versions.
         async def pair(release=(), debug=()):
             for c in release:
-                assert (await publish(c, app="app.pair"))[0] == 200
+                assert (await publish(c, app="com.sohambagchi.pair"))[0] == 200
             for c in debug:
-                assert (await publish(c, app="app.pair.debug", build="debug"))[0] == 200
+                assert (await publish(c, app="com.sohambagchi.pair.debug", build="debug"))[0] == 200
             depot.prune(tmp / "state", 3)
-            return ([r["code"] for r in d.index("app.pair")["releases"]],
-                    [r["code"] for r in d.index("app.pair.debug")["releases"]])
+            return ([r["code"] for r in d.index("com.sohambagchi.pair")["releases"]],
+                    [r["code"] for r in d.index("com.sohambagchi.pair.debug")["releases"]])
 
         assert await pair(release=[100], debug=[101, 102, 103]) == ([100], [101, 102, 103])
         assert await pair(release=[104], debug=[104, 105]) == ([104], [103, 104, 105])
         assert await pair(release=[106, 107], debug=[106, 107]) == ([106, 107], [105, 106, 107])
         assert await pair(release=[108], debug=[108]) == ([106, 107, 108], [106, 107, 108])
-        apks = sorted(f.name for f in apps.glob("app.pair*/*.apk"))  # the maximum: 3 versions x 2 builds
+        apks = sorted(f.name for f in apps.glob("com.sohambagchi.pair*/*.apk"))  # the maximum: 3 versions x 2 builds
         assert apks == ["106.apk", "106.apk", "107.apk", "107.apk", "108.apk", "108.apk"], apks
 
     await runner.cleanup()

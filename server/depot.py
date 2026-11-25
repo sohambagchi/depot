@@ -41,6 +41,8 @@ MAX_APK = 512 * 1024 * 1024
 TAILNET = (ipaddress.ip_network("100.64.0.0/10"), ipaddress.ip_network("fd7a:115c:a1e0::/48"))
 APP_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
+# What may be published: com.sohambagchi.<app> for release builds, plus ".debug" for debug builds.
+PUBLISHABLE = re.compile(r"^com\.sohambagchi\.([a-z][a-z0-9_]*)(\.debug)?$")
 PAGE = Path(__file__).with_name("index.html")  # the download page
 BUILDS = ("debug", "release")
 # A systemd service's PATH may not hold the system profile, where NixOS puts the tailscale CLI.
@@ -93,6 +95,13 @@ def state_lock(state: Path):
     with open(state / ".lock", "w") as f:
         fcntl.flock(f, fcntl.LOCK_EX)
         yield
+
+
+def apk_filename(idx: dict, rel: dict) -> str:
+    """The download's file name: <app>-v<version>.apk, with .debug before .apk for debug builds."""
+    short = family(idx).rsplit(".", 1)[-1]
+    debug = ".debug" if idx.get("build") == "debug" else ""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", f"{short}-v{rel.get('name') or rel['code']}{debug}.apk")
 
 
 def family(idx: dict) -> str:
@@ -358,9 +367,9 @@ class Depot:
         path = self.app_dir(app) / f"{int(code)}.apk"
         if not APP_ID.match(app) or not path.is_file():
             return error(404, "no such release")
-        idx = self.index(app) or {"releases": []}
-        rel = next((r for r in idx["releases"] if r["code"] == int(code)), {})
-        filename = re.sub(r"[^A-Za-z0-9._-]", "_", f"{app}-{rel.get('name') or code}.apk")
+        idx = self.index(app) or {"app": app, "releases": []}
+        rel = next((r for r in idx["releases"] if r["code"] == int(code)), {"code": int(code)})
+        filename = apk_filename(idx, rel)
         return web.FileResponse(path, headers={"Content-Type": "application/vnd.android.package-archive",
                                                "Content-Disposition": f'attachment; filename="{filename}"'})
 
@@ -398,8 +407,13 @@ class Depot:
             build = meta.get("build")
             if build not in BUILDS:
                 raise ValueError("build must be \"debug\" or \"release\" (is emu-publish up to date?)")
-            if not APP_ID.match(app):
-                raise ValueError(f"bad app id {app!r}")
+            m = PUBLISHABLE.match(app)
+            if not m:
+                raise ValueError(f"application id {app!r} is not com.sohambagchi.<app> (lowercase), "
+                                 f"or com.sohambagchi.<app>.debug for a debug build")
+            if (build == "debug") != bool(m.group(2)):
+                raise ValueError(f"{app} is a {build} build; release builds use com.sohambagchi.<app> and debug "
+                                 f"builds com.sohambagchi.<app>.debug (applicationIdSuffix = \".debug\")")
             if code <= 0 or not HEX64.match(signer):
                 raise ValueError("code must be positive and signer a SHA-256 hex digest")
             if len(data) > MAX_APK or data[:2] != b"PK":
@@ -411,10 +425,6 @@ class Depot:
                 idx = self.index(app) or {"app": app, "signer": signer, "build": build, "releases": []}
                 if signer != idx["signer"]:
                     return error(409, f"{app} is pinned to signer {idx['signer']}; this APK is signed by {signer}")
-                # An application id carries one build type, so a device never swaps one for the other.
-                if build != idx.setdefault("build", build):
-                    return error(409, f"{app} takes {idx['build']} builds and this is a {build} build; give "
-                                      f"debug builds their own application id (applicationIdSuffix = \".debug\")")
                 top = max((r["code"] for r in idx["releases"]), default=0)
                 if code <= top:
                     return error(409, f"version code {code} is not greater than the published {top}")
