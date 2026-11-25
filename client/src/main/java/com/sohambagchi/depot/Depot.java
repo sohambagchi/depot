@@ -14,9 +14,11 @@ import java.util.concurrent.TimeUnit;
 /**
  * Updates for this app from depot (see android-emu's depot/PROTOCOL.md).
  *
- * Including the library is enough: a periodic job checks for a newer build, downloads and
- * verifies it, and posts a notification that installs it on tap. These methods are for apps
- * that also want an in-app "check" or "install" control.
+ * Including the library is enough for automatic updates: a periodic job checks for a newer
+ * build, downloads and verifies it, and posts a notification that installs it on tap.
+ *
+ * Every app must also offer a manual check: a "Check for updates" item in its settings or a
+ * menu that starts {@link #updatesIntent}. emu-publish refuses an APK without one.
  */
 public final class Depot {
     static final String TAG = "depot";
@@ -41,6 +43,14 @@ public final class Depot {
             this.notes = notes;
             this.file = file;
         }
+    }
+
+    /**
+     * Opens depot's "App updates" screen, which checks at once and offers the install. Start it
+     * from a "Check for updates" item in the app's settings or menu.
+     */
+    public static Intent updatesIntent(Context context) {
+        return new Intent(context, UpdatesActivity.class);
     }
 
     /** Checks for an update as soon as there is a network, off the main thread. */

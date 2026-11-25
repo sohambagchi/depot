@@ -64,12 +64,23 @@ dependencies {
 }
 ```
 
-No code is needed. A content provider in the library schedules the check when the app starts.
-Apps that want an in-app control can use `com.sohambagchi.depot.Depot`:
+A content provider in the library schedules the automatic checks when the app starts.
 
-- `checkNow(context)` checks as soon as there is a network.
-- `pending(context)` returns the downloaded update, or null.
-- `installIntent(context)` installs it.
+**"Check for updates" (required).** Every app puts a "Check for updates" item somewhere
+unobtrusive, in its settings or an overflow or hamburger menu, that opens depot's "App updates"
+screen:
+
+```kotlin
+startActivity(Depot.updatesIntent(context))   // com.sohambagchi.depot.Depot
+```
+
+The screen comes with the library. It shows the installed version, checks as soon as it opens,
+and says what it found: up to date, an update ready (with its notes and an Install button),
+nothing published, depot unreachable, or not enrolled yet (turn on Tailscale). `emu-publish`
+refuses an APK in which no code of the app's own calls `updatesIntent`.
+
+`com.sohambagchi.depot.Depot` also has `checkNow(context)` (a background check),
+`pending(context)` (the downloaded update, or null) and `installIntent(context)`.
 
 **Requirements:**
 
@@ -152,6 +163,11 @@ emu-publish app/build/outputs/apk/debug/app-debug.apk
   version code isn't the commit count.
 - **Where.** It posts to `DEPOT_PUBLISH_URL`, the direct tailnet address; through the proxy, the
   publisher would look like a LAN client.
+- **The "Check for updates" item.** emu-publish reads the APK's dex code with `dexdump` and
+  refuses it unless it includes depot's client and some class outside the library calls
+  `Depot.updatesIntent`. The library's consumer R8 rule keeps that method under its name and
+  stops R8 from inlining it, so the call stays visible in shrunk release builds. See
+  [2026-11-25-0021-every-depot-app-has-a-check-for-updates-item](../docs/adr/2026-11-25-0021-every-depot-app-has-a-check-for-updates-item.md).
 - **What gets refused.** Both emu-publish and depot refuse an application id outside the
   `com.sohambagchi.<app>[.debug]` form, or one whose suffix doesn't match the build type. depot
   also answers 409 to a version code that isn't new, or to a different signer.

@@ -29,14 +29,29 @@ final class Checker {
 
     private Checker() {}
 
-    static synchronized void run(Context ctx) throws IOException, GeneralSecurityException {
+    /** What a check found. */
+    enum Outcome { UP_TO_DATE, READY, NOTHING_PUBLISHED, OTHER_SIGNER, NOT_CONFIGURED }
+
+    /**
+     * Checks once. `notify` posts the "ready" notification for a new update; the updates screen
+     * passes false, since it shows the update itself. Throws when depot can't be reached or
+     * refuses the device.
+     */
+    static synchronized Outcome run(Context ctx, boolean notify) throws IOException, GeneralSecurityException {
         SharedPreferences p = Depot.prefs(ctx);
         p.edit().putLong("last_check", System.currentTimeMillis()).apply();
         dropInstalled(ctx);
         if (BuildConfig.DEPOT_URLS.isEmpty()) {
             Log.w(Depot.TAG, "built without DEPOT_URLS; not checking");
-            return;
+            return Outcome.NOT_CONFIGURED;
         }
+        Outcome outcome = check(ctx, p, notify);
+        p.edit().putLong("last_success", System.currentTimeMillis()).apply();
+        return outcome;
+    }
+
+    private static Outcome check(Context ctx, SharedPreferences p, boolean notify)
+            throws IOException, GeneralSecurityException {
         Api api = new Api(BuildConfig.DEPOT_URLS);
         String token = session(ctx, api, p);
         String pkg = ctx.getPackageName();
@@ -47,7 +62,7 @@ final class Checker {
         } catch (Api.HttpError e) {
             if (e.status == 404) {
                 Log.i(Depot.TAG, "nothing published for " + pkg);
-                return;
+                return Outcome.NOTHING_PUBLISHED;
             }
             throw e;
         }
@@ -56,12 +71,12 @@ final class Checker {
         long installed = installedCode(ctx);
         if (code <= installed) {
             Log.i(Depot.TAG, "up to date (" + installed + ", latest " + code + ")");
-            return;
+            return Outcome.UP_TO_DATE;
         }
         String signer = rel.optString("signer");
         if (!signer.equalsIgnoreCase(installedSigner(ctx))) {
             Log.w(Depot.TAG, name + " (" + code + ") is signed by another key; not offering it");
-            return;
+            return Outcome.OTHER_SIGNER;
         }
 
         Depot.Update pending = Depot.pending(ctx);
@@ -92,10 +107,11 @@ final class Checker {
             pending = Depot.pending(ctx);
             Log.i(Depot.TAG, "downloaded " + name + " (" + code + ")");
         }
-        if (pending != null && p.getLong("notified_code", 0) != code) {
+        if (notify && pending != null && p.getLong("notified_code", 0) != code) {
             notifyReady(ctx, pending);
             p.edit().putLong("notified_code", code).apply();
         }
+        return Outcome.READY;
     }
 
     /** A bearer token, enrolling first (over the tailnet) when this app has no device id yet. */
@@ -110,7 +126,12 @@ final class Checker {
                 } catch (org.json.JSONException e) {
                     throw new IllegalStateException(e);
                 }
-                device = api.enroll(body).optString("device");
+                try {
+                    device = api.enroll(body).optString("device");
+                } catch (Api.HttpError e) {
+                    if (e.status != 403) throw e;
+                    throw new NotEnrolled(e.getMessage());
+                }
                 p.edit().putString("device", device).apply();
                 Log.i(Depot.TAG, "enrolled as " + device);
             }
@@ -130,6 +151,13 @@ final class Checker {
             } catch (org.json.JSONException e) {
                 throw new IOException("session without a token", e);
             }
+        }
+    }
+
+    /** depot refused to enroll this device: it wasn't on the tailnet, or isn't allowed. */
+    static final class NotEnrolled extends IOException {
+        NotEnrolled(String message) {
+            super(message);
         }
     }
 

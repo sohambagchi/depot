@@ -67,6 +67,7 @@ android {
 
     defaultConfig {
         minSdk 31
+        consumerProguardFiles 'consumer-rules.pro'
         buildConfigField 'String', 'DEPOT_URLS', "\"${urls}\""
     }
     buildFeatures {

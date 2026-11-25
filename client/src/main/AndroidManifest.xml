@@ -35,5 +35,12 @@
             android:taskAffinity=""
             android:excludeFromRecents="true"
             android:exported="false" />
+
+        <!-- "App updates": opened from the app's "Check for updates" item (Depot.updatesIntent). -->
+        <activity
+            android:name="com.sohambagchi.depot.UpdatesActivity"
+            android:label="App updates"
+            android:theme="@android:style/Theme.DeviceDefault.DayNight"
+            android:exported="false" />
     </application>
 </manifest>

@@ -10,7 +10,7 @@ public final class CheckJob extends JobService {
     public boolean onStartJob(JobParameters params) {
         new Thread(() -> {
             try {
-                Checker.run(getApplicationContext());
+                Checker.run(getApplicationContext(), true);
             } catch (Exception e) {
                 Log.w(Depot.TAG, "update check failed: " + e);
             }
