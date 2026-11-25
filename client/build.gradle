@@ -1,13 +1,11 @@
-// depot's client, included by an app's settings.gradle.kts as the `:depot` project (see
-// ../README.md). Groovy rather than Kotlin DSL: it has to build under whatever AGP the app uses
-// (8.x with the Kotlin plugin, 9.x with built-in Kotlin), and the client itself is plain Java.
+// depot's client, included by an app's settings.gradle.kts as the `:depot` project from a
+// writable copy of this directory (see ../README.md). Groovy rather than Kotlin DSL: it has to
+// build under whatever AGP the app uses (8.x with the Kotlin plugin, 9.x with built-in Kotlin),
+// and the client itself is plain Java.
 
 plugins {
     id 'com.android.library'
 }
-
-// This directory is a read-only Nix store path, so outputs go under the app's build directory.
-layout.buildDirectory = rootProject.layout.buildDirectory.dir('depot-client')
 
 // Compile against the newest platform and build-tools in the app's SDK (a read-only Nix SDK can't fetch another).
 def sdkDir = System.getenv('ANDROID_HOME') ?: System.getenv('ANDROID_SDK_ROOT')

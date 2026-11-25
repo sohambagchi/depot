@@ -63,7 +63,9 @@ When the caller is depot's trusted proxy, depot takes the caller's address from 
  "url": "/v1/apps/app.blot/212.apk"}
 ```
 
-`GET /v1/apps/<app id>/<code>.apk` (bearer) → the APK (`application/vnd.android.package-archive`).
+`GET /v1/apps/<app id>/<code>.apk` → the APK (`application/vnd.android.package-archive`, with a
+`Content-Disposition` file name). It needs a bearer token, unless the caller is on the home LAN
+(a private address) or the tailnet, for the download page.
 
 The client offers the update only when all of these hold:
 
@@ -90,7 +92,19 @@ in `latest`.
   rising-code rule still count the releases that are kept.
 
 `GET /v1/status` (tailnet, allowed login) → published apps and enrolled devices, for debugging.
-`GET /` → `{"service": "depot", "protocol": 1, …}`, a health check that needs no auth.
+
+## Download page
+
+`GET /` is a static page that lists every app's latest release for a first install from a
+browser. It reads:
+
+- **`GET /v1/catalog`** → `{"apps": [release + "label", …]}`. It answers callers on the home LAN
+  or the tailnet, and gives **403** to anything else.
+- **`GET /v1/health`** → `{"service": "depot", "protocol": 1, …}`, with no auth.
+
+Anyone on the home Wi-Fi can list and download releases this way. Updates still go through
+`latest`, which needs an enrolled app's token. `emu-publish` sends the app's label (aapt2's
+`application: label`) with each release.
 
 ## Version codes
 

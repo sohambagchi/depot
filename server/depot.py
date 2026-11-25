@@ -41,6 +41,7 @@ MAX_APK = 512 * 1024 * 1024
 TAILNET = (ipaddress.ip_network("100.64.0.0/10"), ipaddress.ip_network("fd7a:115c:a1e0::/48"))
 APP_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
+PAGE = Path(__file__).with_name("index.html")  # the download page
 # A systemd service's PATH may not hold the system profile, where NixOS puts the tailscale CLI.
 TAILSCALE = os.environ.get("DEPOT_TAILSCALE") or shutil.which("tailscale") or "/run/current-system/sw/bin/tailscale"
 
@@ -55,6 +56,15 @@ def on_tailnet(addr: str | None) -> bool:
     except ValueError:
         return False
     return any(ip in net for net in TAILNET)
+
+
+def on_local_network(addr: str | None) -> bool:
+    """A home-LAN (private) or tailnet address: the download page's audience, never the internet."""
+    try:
+        ip = ipaddress.ip_address(addr or "")
+    except ValueError:
+        return False
+    return ip.is_private or on_tailnet(addr)
 
 
 def write_atomic(path: Path, data: bytes) -> None:
@@ -322,13 +332,30 @@ class Depot:
         return web.json_response(self.release_view(max(idx["releases"], key=lambda r: r["code"]), app))
 
     async def apk(self, request: web.Request) -> web.StreamResponse:
-        if not self.bearer(request):
+        # Enrolled apps download with their token; the download page serves anyone on the LAN or tailnet.
+        if not self.bearer(request) and not on_local_network(self.client(request)):
             return error(401, "no valid token")
         app, code = request.match_info["app"], request.match_info["code"]
         path = self.app_dir(app) / f"{int(code)}.apk"
         if not APP_ID.match(app) or not path.is_file():
             return error(404, "no such release")
-        return web.FileResponse(path, headers={"Content-Type": "application/vnd.android.package-archive"})
+        idx = self.index(app) or {"releases": []}
+        rel = next((r for r in idx["releases"] if r["code"] == int(code)), {})
+        filename = re.sub(r"[^A-Za-z0-9._-]", "_", f"{app}-{rel.get('name') or code}.apk")
+        return web.FileResponse(path, headers={"Content-Type": "application/vnd.android.package-archive",
+                                               "Content-Disposition": f'attachment; filename="{filename}"'})
+
+    async def catalog(self, request: web.Request) -> web.Response:
+        """Every app's latest release, for the download page."""
+        if not on_local_network(self.client(request)):
+            return error(403, "only from the home network or the tailnet")
+        apps = []
+        for idx_path in sorted((self.state / "apps").glob("*/index.json")):
+            idx = json.loads(idx_path.read_text())
+            if idx["releases"]:
+                rel = max(idx["releases"], key=lambda r: r["code"])
+                apps.append(self.release_view(rel, idx["app"]) | {"label": rel.get("label") or idx["app"]})
+        return web.json_response({"apps": sorted(apps, key=lambda a: a["label"].lower())})
 
     async def publish(self, request: web.Request) -> web.Response:
         who = await self.tailnet_caller(request, check_node=False)
@@ -346,6 +373,7 @@ class Depot:
                 raise ValueError("need a meta part and an apk part")
             app, code, name = meta["app"], int(meta["code"]), str(meta.get("name") or "")
             signer, notes = str(meta["signer"]).lower(), str(meta.get("notes") or "")[:2000]
+            label = str(meta.get("label") or "")[:64]
             if not APP_ID.match(app):
                 raise ValueError(f"bad app id {app!r}")
             if code <= 0 or not HEX64.match(signer):
@@ -362,7 +390,7 @@ class Depot:
                 top = max((r["code"] for r in idx["releases"]), default=0)
                 if code <= top:
                     return error(409, f"version code {code} is not greater than the published {top}")
-                rel = {"code": code, "name": name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+                rel = {"code": code, "name": name, "label": label, "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
                        "signer": signer, "notes": notes, "published_at": now_ms(),
                        "published_by": f"{who['login']} on {who['node']}"}
                 write_atomic(self.app_dir(app) / f"{code}.apk", data)
@@ -385,11 +413,16 @@ class Depot:
         return web.json_response({"apps": apps, "devices": devices, "listen": self.hosts})
 
     async def root(self, request: web.Request) -> web.Response:
+        return web.FileResponse(PAGE, headers={"Content-Type": "text/html; charset=utf-8"})
+
+    async def health(self, request: web.Request) -> web.Response:
         return web.json_response({"service": "depot", "protocol": 1, "docs": "android-emu/depot/PROTOCOL.md"})
 
     def app(self) -> web.Application:
         app = web.Application(client_max_size=MAX_APK + 1024 * 1024)
         app.router.add_get("/", self.root)
+        app.router.add_get("/v1/health", self.health)
+        app.router.add_get("/v1/catalog", self.catalog)
         app.router.add_post("/v1/enroll", self.enroll)
         app.router.add_get("/v1/challenge", self.challenge)
         app.router.add_post("/v1/session", self.session)

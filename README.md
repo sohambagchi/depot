@@ -30,10 +30,19 @@ devShells.${system}.default = pkgs.mkShell ({
 it, such as a public open-source one, has no updater and no extra permissions.
 
 ```kotlin
-// depot's update client (android-emu), built in only when the dev shell provides it.
-System.getenv("DEPOT_CLIENT")?.let {
+// depot's update client (android-emu), built in only when the dev shell provides it. Gradle
+// needs a writable project directory, so the read-only Nix store copy is mirrored into build/.
+System.getenv("DEPOT_CLIENT")?.let { source ->
+    val dir = file("build/depot-client")
+    val stamp = dir.resolve(".source")
+    if (!stamp.isFile || stamp.readText() != source) {
+        dir.deleteRecursively()
+        file(source).copyRecursively(dir)
+        dir.walk().forEach { it.setWritable(true, true) }
+        stamp.writeText(source)
+    }
     include(":depot")
-    project(":depot").projectDir = file(it)
+    project(":depot").projectDir = dir
 }
 ```
 
@@ -91,6 +100,17 @@ Apps that want an in-app control can use `com.sohambagchi.depot.Depot`:
   update this app?". This works even when the app was first installed with `adb install`
   (checked on API 31 and 35 emulators). A build without that permission, from before the app took
   depot in, still gets the dialog once.
+
+## Installing on a new device
+
+Open `https://depot.wheat.sohambagchi.com` in the device's browser on home Wi-Fi.
+
+1. Tap **Download** for an app. Chrome warns about every APK; choose **Download anyway**.
+2. Open the file. Android asks once to allow installs from that source.
+3. Install it, then open the app once with Tailscale on so it enrolls for updates.
+
+Tested on an API 35 emulator through the live proxy: download, install, enroll, and an update
+installed from the tap with no dialog.
 
 ## Publishing
 
@@ -158,6 +178,7 @@ WantedBy=timers.target
     Tailscale on its next check.
   - `apps/<id>/`: releases; the newest three after each Friday's prune.
 - **Status.** `curl http://100.97.41.27:8473/v1/status` lists apps and devices (tailnet only).
+  `/v1/health` answers anyone, for monitoring.
 - **Development.** Run `nix run .#depot -- --listen 127.0.0.1 --state /tmp/depot` for a local
   server, and `nix build .#checks.x86_64-linux.depot` for the test.
 - **System service.** `nixosModules.depot` (`services.depot`) runs the same server as a system

@@ -67,15 +67,18 @@ async def run(tmp: Path) -> None:
             async with http.post(base + path, **kw) as r:
                 return r.status, await r.json()
 
-        async def get(path, token=None):
+        async def get(path, token=None, fwd=None, full=False):
             headers = {"Authorization": f"Bearer {token}"} if token else {}
+            if fwd:
+                headers["X-Forwarded-For"] = fwd
             async with http.get(base + path, headers=headers) as r:
                 body = await r.read()
-                return r.status, (json.loads(body) if r.content_type == "application/json" else body)
+                body = json.loads(body) if r.content_type == "application/json" else body
+                return (r.status, body, r.headers) if full else (r.status, body)
 
         async def publish(code, signer=SIGNER, data=None, app="app.test"):
             form = aiohttp.FormData()
-            form.add_field("meta", json.dumps({"app": app, "code": code, "name": f"0.{code}.0",
+            form.add_field("meta", json.dumps({"app": app, "code": code, "name": f"0.{code}.0", "label": "Test App",
                                                "signer": signer, "notes": "n"}), content_type="application/json")
             form.add_field("apk", data or apk_bytes(str(code).encode()), filename="a.apk")
             return await post("/v1/publish", data=form)
@@ -171,8 +174,22 @@ async def run(tmp: Path) -> None:
         s, _ = await post("/v1/enroll", json=enroll, headers={"X-Forwarded-For": "100.101.102.103"})
         assert s == 403, s  # not from the proxy: the header is ignored
         d.proxies = {"127.0.0.1"}
-        s, body = await get("/")
+        s, body = await get("/v1/health")
         assert s == 200 and body["service"] == "depot", body
+
+        # The download page: open to the LAN and the tailnet, never to the internet. Updates
+        # (latest) still need an enrolled app's token.
+        s, page = await get("/")
+        assert s == 200 and b"<title>depot</title>" in page
+        for fwd in (None, "192.168.0.50", "100.101.102.103"):
+            s, cat = await get("/v1/catalog", fwd=fwd)
+            assert s == 200 and [(a["app"], a["code"], a["label"]) for a in cat["apps"]] == [("app.test", 7, "Test App")], cat
+        assert (await get("/v1/catalog", fwd="8.8.8.8"))[0] == 403
+        s, body, headers = await get("/v1/apps/app.test/7.apk", fwd="192.168.0.50", full=True)
+        assert s == 200 and body == apk_bytes(b"7"), s
+        assert headers["Content-Disposition"] == 'attachment; filename="app.test-0.7.0.apk"'
+        assert (await get("/v1/apps/app.test/7.apk", fwd="8.8.8.8"))[0] == 401
+        assert (await get("/v1/apps/app.test/latest", fwd="192.168.0.50"))[0] == 401
 
         # Revoking the device kills its token.
         tailnet["yes"] = True
